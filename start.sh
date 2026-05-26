@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 if [ ! -f backend/.env ]; then
   echo "Creating .env from .env.example..."
   cp backend/.env.example backend/.env
-  echo "⚠️  Please edit backend/.env and add your ANTHROPIC_API_KEY"
+  echo "⚠️  Please edit backend/.env and add your OPENAI_API_KEY"
   exit 1
 fi
 
