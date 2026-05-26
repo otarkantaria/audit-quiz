@@ -32,36 +32,47 @@ let voicesReady = false
 let bestVoice = null
 
 function loadVoices() {
-  const voices = window.speechSynthesis?.getVoices() || []
-  // Try Georgian first, then Russian (can read Georgian script), then any
-  bestVoice = voices.find(v => v.lang.startsWith('ka')) ||
-              voices.find(v => v.lang.startsWith('ru')) ||
-              voices.find(v => v.lang.startsWith('en')) ||
-              voices[0] || null
-  voicesReady = voices.length > 0
-  console.log('TTS voices loaded:', voices.length, 'best:', bestVoice?.name, bestVoice?.lang)
+  const synth = window.speechSynthesis
+  if (!synth) return
+  const voices = synth.getVoices()
+  if (!voices.length) return
+
+  // Find Georgian voice — iOS uses "Mekhi" (ka-GE), macOS may have others
+  bestVoice = voices.find(v => v.lang === 'ka-GE') ||
+              voices.find(v => v.lang.startsWith('ka')) ||
+              null
+  voicesReady = true
+  console.log('TTS: found', voices.length, 'voices. Georgian:', bestVoice?.name || 'none',
+    '\nAll:', voices.map(v => v.lang + ':' + v.name).join(', '))
 }
 
 if (window.speechSynthesis) {
   loadVoices()
-  window.speechSynthesis.onvoiceschanged = loadVoices
+  // Chrome/desktop loads voices async; iOS Safari has them immediately
+  if (!voicesReady) {
+    window.speechSynthesis.onvoiceschanged = loadVoices
+  }
 }
 
 function speak(text) {
   return new Promise(resolve => {
-    if (!window.speechSynthesis) { resolve(); return }
+    const synth = window.speechSynthesis
+    if (!synth) { resolve(); return }
 
-    window.speechSynthesis.cancel()
+    // Re-check voices (iOS sometimes needs this)
+    if (!voicesReady) loadVoices()
 
-    // Chrome bug: synthesis stops after ~15s. Split into shorter chunks.
-    const maxLen = 200
+    synth.cancel()
+
+    // Split long text — iOS and Chrome both choke on long utterances
+    const maxLen = 150
     const chunks = []
     let remaining = text
     while (remaining.length > maxLen) {
       let cut = remaining.lastIndexOf('.', maxLen)
-      if (cut < 40) cut = remaining.lastIndexOf(',', maxLen)
-      if (cut < 40) cut = remaining.lastIndexOf(' ', maxLen)
-      if (cut < 40) cut = maxLen
+      if (cut < 30) cut = remaining.lastIndexOf(',', maxLen)
+      if (cut < 30) cut = remaining.lastIndexOf(' ', maxLen)
+      if (cut < 30) cut = maxLen
       chunks.push(remaining.slice(0, cut + 1).trim())
       remaining = remaining.slice(cut + 1).trim()
     }
@@ -71,25 +82,28 @@ function speak(text) {
     function speakNext() {
       if (i >= chunks.length) { resolve(); return }
       const u = new SpeechSynthesisUtterance(chunks[i])
+      // Always set lang to ka-GE for Georgian text
+      u.lang = 'ka-GE'
       if (bestVoice) u.voice = bestVoice
-      u.lang = bestVoice?.lang?.startsWith('ka') ? 'ka-GE' : (bestVoice?.lang || 'ka-GE')
-      u.rate = 0.95
+      u.rate = 0.9
       u.pitch = 1
-      u.onend = () => { i++; speakNext() }
-      u.onerror = () => { i++; speakNext() }
-      window.speechSynthesis.speak(u)
 
-      // Chrome bug workaround: resume if paused
-      const watchdog = setInterval(() => {
-        if (!window.speechSynthesis.speaking) {
-          clearInterval(watchdog)
-        } else {
-          window.speechSynthesis.pause()
-          window.speechSynthesis.resume()
-        }
-      }, 10000)
-      u.onend = () => { clearInterval(watchdog); i++; speakNext() }
-      u.onerror = () => { clearInterval(watchdog); i++; speakNext() }
+      u.onend = () => { i++; speakNext() }
+      u.onerror = (e) => {
+        console.warn('TTS chunk error:', e)
+        i++
+        speakNext()
+      }
+
+      synth.speak(u)
+
+      // Safety timeout — if utterance hangs, skip after 30s
+      const timeout = setTimeout(() => {
+        if (synth.speaking) { synth.cancel(); i++; speakNext() }
+      }, 30000)
+      const origEnd = u.onend
+      u.onend = () => { clearTimeout(timeout); origEnd() }
+      u.onerror = (e) => { clearTimeout(timeout); console.warn('TTS error:', e); i++; speakNext() }
     }
 
     speakNext()
@@ -357,13 +371,19 @@ function App() {
         setError('ხმოვანი რეჟიმი არ არის ხელმისაწვდომი ამ ბრაუზერში')
         return
       }
+      // Force voice reload on iOS
       loadVoices()
-      if (!voicesReady) {
-        setError('ხმოვანი რეჟიმი: ხმები არ მოიძებნა. სცადეთ Safari ან Chrome.')
-        return
+      // iOS Safari: voices are available immediately, no need to wait
+      // If still no Georgian voice, warn but allow (will use default)
+      if (!bestVoice) {
+        console.warn('No Georgian voice found, using default')
       }
-      // Test speak to confirm it works + require user gesture
-      speak('ხმოვანი რეჟიმი ჩართულია')
+      // Test speak — this also satisfies iOS user-gesture requirement
+      const u = new SpeechSynthesisUtterance('ხმოვანი რეჟიმი ჩართულია')
+      u.lang = 'ka-GE'
+      if (bestVoice) u.voice = bestVoice
+      u.rate = 0.9
+      window.speechSynthesis.speak(u)
       setHandsFree(true)
     }
   }
