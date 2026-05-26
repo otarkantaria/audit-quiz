@@ -27,16 +27,54 @@ function saveProgress(data) {
 const OPTION_KEYS = ['ა', 'ბ', 'გ', 'დ']
 const VOICE_MAP = { a: 'ა', b: 'ბ', c: 'გ', d: 'დ', '1': 'ა', '2': 'ბ', '3': 'გ', '4': 'დ' }
 
-function speak(text, lang = 'ka-GE') {
+// Split text into chunks of ~190 chars at sentence/word boundaries
+function splitTextForTTS(text, maxLen = 190) {
+  if (text.length <= maxLen) return [text]
+  const chunks = []
+  let remaining = text
+  while (remaining.length > maxLen) {
+    let cut = remaining.lastIndexOf('.', maxLen)
+    if (cut < 40) cut = remaining.lastIndexOf(',', maxLen)
+    if (cut < 40) cut = remaining.lastIndexOf(' ', maxLen)
+    if (cut < 40) cut = maxLen
+    chunks.push(remaining.slice(0, cut + 1).trim())
+    remaining = remaining.slice(cut + 1).trim()
+  }
+  if (remaining) chunks.push(remaining)
+  return chunks
+}
+
+let currentAudio = null
+
+function speak(text, lang = 'ka') {
   return new Promise(resolve => {
-    window.speechSynthesis.cancel()
-    const u = new SpeechSynthesisUtterance(text)
-    u.lang = lang
-    u.rate = 1.05
-    u.onend = resolve
-    u.onerror = resolve
-    window.speechSynthesis.speak(u)
+    if (currentAudio) {
+      currentAudio.pause()
+      currentAudio = null
+    }
+    const chunks = splitTextForTTS(text)
+    let i = 0
+
+    function playNext() {
+      if (i >= chunks.length) { resolve(); return }
+      const encoded = encodeURIComponent(chunks[i])
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=tw-ob&q=${encoded}`
+      const audio = new Audio(url)
+      currentAudio = audio
+      audio.onended = () => { i++; playNext() }
+      audio.onerror = () => { i++; playNext() }
+      audio.play().catch(() => { i++; playNext() })
+    }
+
+    playNext()
   })
+}
+
+function stopSpeaking() {
+  if (currentAudio) {
+    currentAudio.pause()
+    currentAudio = null
+  }
 }
 
 function getSpeechRecognition() {
@@ -126,7 +164,7 @@ function App() {
     }
 
     // Listen for answer
-    await speak('თქვენი პასუხი?', 'ka-GE')
+    await speak('თქვენი პასუხი?')
     if (!handsFreeRef.current || abortRef.current) return
 
     const answer = await listenForAnswer()
@@ -138,7 +176,7 @@ function App() {
       // We return the answer to be processed by the caller
       return { answer, isCorrect }
     } else {
-      await speak('ვერ გავიგე. თავიდან სცადეთ.', 'ka-GE')
+      await speak('ვერ გავიგე. თავიდან სცადეთ.')
       if (!handsFreeRef.current || abortRef.current) return
       // Retry
       return runHandsFreeQuestion(q, qIndex, allQuestions, currentAnswers, currentRevealed)
@@ -230,11 +268,11 @@ function App() {
 
     // Voice feedback
     if (isCorrect) {
-      await speak('სწორია!', 'ka-GE')
+      await speak('სწორია!')
     } else {
       const correctKey = q.correct
       const correctText = q.options[correctKey]
-      await speak(`არასწორია. სწორი პასუხია ${correctKey}. ${correctText}`, 'ka-GE')
+      await speak(`არასწორია. სწორი პასუხია ${correctKey}. ${correctText}`)
     }
 
     if (!handsFreeRef.current || abortRef.current) return
@@ -242,7 +280,7 @@ function App() {
     // Read explanation for correct answer
     const explanations = q.explanations || {}
     if (explanations[q.correct]) {
-      await speak(explanations[q.correct], 'ka-GE')
+      await speak(explanations[q.correct])
     }
 
     if (!handsFreeRef.current || abortRef.current) return
@@ -256,7 +294,7 @@ function App() {
       setCurrentQ(qIndex + 1)
     } else {
       // Quiz finished — submit
-      await speak('ტესტი დასრულდა.', 'ka-GE')
+      await speak('ტესტი დასრულდა.')
     }
   }, [])
 
@@ -285,7 +323,7 @@ function App() {
   function toggleHandsFree() {
     if (handsFree) {
       // Turn off
-      window.speechSynthesis.cancel()
+      stopSpeaking()
       if (recognitionRef.current) try { recognitionRef.current.stop() } catch {}
       abortRef.current = true
       setListening(false)
@@ -343,7 +381,7 @@ function App() {
     setProgress(p)
 
     if (handsFree) {
-      speak(`შედეგი: ${score} პროცენტი. ${correct} სწორი ${questions.length} კითხვიდან.`, 'ka-GE')
+      speak(`შედეგი: ${score} პროცენტი. ${correct} სწორი ${questions.length} კითხვიდან.`)
     }
   }
 
@@ -352,7 +390,7 @@ function App() {
       clearInterval(timerRef.current)
       timerRef.current = null
     }
-    window.speechSynthesis.cancel()
+    stopSpeaking()
     if (recognitionRef.current) try { recognitionRef.current.stop() } catch {}
     abortRef.current = true
     setView('home')
