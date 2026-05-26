@@ -1,0 +1,22 @@
+# Production overrides — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# NOTE: civilgpt already uses ports 80/443 on this VPS.
+# Option A (recommended): Add this app's server block to civilgpt's nginx.
+# Option B: Stop civilgpt nginx, use a shared host-level nginx for both.
+#
+# For Option A, this compose only runs the API container.
+# Add the nginx config from nginx/audit-quiz.conf to civilgpt's nginx.
+
+services:
+  quiz-api:
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/app/chroma_db
+      - quiz_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  chroma_data:
+  quiz_data:

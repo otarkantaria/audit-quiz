@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+.env.production
+backend/.env
+backend/chroma_db/
+backend/progress.json
+frontend/node_modules/
+frontend/dist/
+.DS_Store
+venv/
