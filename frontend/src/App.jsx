@@ -40,6 +40,7 @@ function App() {
   const timerRef = useRef(null)
   const [elapsed, setElapsed] = useState(0)
   const [reviewMode, setReviewMode] = useState(false)
+  const [revealed, setRevealed] = useState({}) // tracks which questions have been answered and revealed
 
   useEffect(() => {
     fetch('./question_bank.json')
@@ -83,13 +84,15 @@ function App() {
     setResults(null)
     setElapsed(0)
     setReviewMode(false)
+    setRevealed({})
     setView('quiz')
     timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
   }
 
   function selectAnswer(questionId, option) {
-    if (submitted) return
+    if (revealed[questionId]) return // already answered this one
     setAnswers(prev => ({ ...prev, [questionId]: option }))
+    setRevealed(prev => ({ ...prev, [questionId]: true }))
   }
 
   function submitQuiz() {
@@ -152,6 +155,7 @@ function App() {
     setSubmitted(false)
     setResults(null)
     setReviewMode(false)
+    setRevealed({})
   }
 
   function formatTime(s) {
@@ -283,11 +287,11 @@ function App() {
                 let className = 'option'
                 const qId = questions[currentQ].id
                 const explanations = questions[currentQ].explanations || {}
+                const isRevealed = revealed[qId]
 
-                if (reviewMode && results) {
-                  const r = results.results.find(r => r.question_id === qId)
+                if (isRevealed || reviewMode) {
                   if (key === questions[currentQ].correct) className += ' correct'
-                  else if (key === r?.user_answer && !r?.is_correct) className += ' wrong'
+                  else if (key === answers[qId]) className += ' wrong'
                 } else if (answers[qId] === key) {
                   className += ' selected'
                 }
@@ -297,11 +301,11 @@ function App() {
                     <button
                       className={className}
                       onClick={() => selectAnswer(qId, key)}
-                      disabled={reviewMode}
+                      disabled={isRevealed || reviewMode}
                     >
                       <strong>{key})</strong> {value}
                     </button>
-                    {reviewMode && explanations[key] && (
+                    {(isRevealed || reviewMode) && explanations[key] && (
                       <div className={`option-explanation ${key === questions[currentQ].correct ? 'correct-exp' : 'wrong-exp'}`}>
                         {explanations[key]}
                       </div>
@@ -337,6 +341,7 @@ function App() {
               <button
                 className="btn btn-primary"
                 onClick={() => setCurrentQ(q => q + 1)}
+                disabled={!revealed[questions[currentQ].id]}
               >
                 შემდეგი
               </button>
@@ -344,7 +349,7 @@ function App() {
               <button
                 className="btn btn-success"
                 onClick={submitQuiz}
-                disabled={Object.keys(answers).length < questions.length}
+                disabled={!revealed[questions[currentQ].id]}
               >
                 დასრულება
               </button>
