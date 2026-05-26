@@ -27,54 +27,77 @@ function saveProgress(data) {
 const OPTION_KEYS = ['ა', 'ბ', 'გ', 'დ']
 const VOICE_MAP = { a: 'ა', b: 'ბ', c: 'გ', d: 'დ', '1': 'ა', '2': 'ბ', '3': 'გ', '4': 'დ' }
 
-// Split text into chunks of ~190 chars at sentence/word boundaries
-function splitTextForTTS(text, maxLen = 190) {
-  if (text.length <= maxLen) return [text]
-  const chunks = []
-  let remaining = text
-  while (remaining.length > maxLen) {
-    let cut = remaining.lastIndexOf('.', maxLen)
-    if (cut < 40) cut = remaining.lastIndexOf(',', maxLen)
-    if (cut < 40) cut = remaining.lastIndexOf(' ', maxLen)
-    if (cut < 40) cut = maxLen
-    chunks.push(remaining.slice(0, cut + 1).trim())
-    remaining = remaining.slice(cut + 1).trim()
-  }
-  if (remaining) chunks.push(remaining)
-  return chunks
+// Wait for voices to load (they're async in most browsers)
+let voicesReady = false
+let bestVoice = null
+
+function loadVoices() {
+  const voices = window.speechSynthesis?.getVoices() || []
+  // Try Georgian first, then Russian (can read Georgian script), then any
+  bestVoice = voices.find(v => v.lang.startsWith('ka')) ||
+              voices.find(v => v.lang.startsWith('ru')) ||
+              voices.find(v => v.lang.startsWith('en')) ||
+              voices[0] || null
+  voicesReady = voices.length > 0
+  console.log('TTS voices loaded:', voices.length, 'best:', bestVoice?.name, bestVoice?.lang)
 }
 
-let currentAudio = null
+if (window.speechSynthesis) {
+  loadVoices()
+  window.speechSynthesis.onvoiceschanged = loadVoices
+}
 
-function speak(text, lang = 'ka') {
+function speak(text) {
   return new Promise(resolve => {
-    if (currentAudio) {
-      currentAudio.pause()
-      currentAudio = null
+    if (!window.speechSynthesis) { resolve(); return }
+
+    window.speechSynthesis.cancel()
+
+    // Chrome bug: synthesis stops after ~15s. Split into shorter chunks.
+    const maxLen = 200
+    const chunks = []
+    let remaining = text
+    while (remaining.length > maxLen) {
+      let cut = remaining.lastIndexOf('.', maxLen)
+      if (cut < 40) cut = remaining.lastIndexOf(',', maxLen)
+      if (cut < 40) cut = remaining.lastIndexOf(' ', maxLen)
+      if (cut < 40) cut = maxLen
+      chunks.push(remaining.slice(0, cut + 1).trim())
+      remaining = remaining.slice(cut + 1).trim()
     }
-    const chunks = splitTextForTTS(text)
+    if (remaining) chunks.push(remaining)
+
     let i = 0
-
-    function playNext() {
+    function speakNext() {
       if (i >= chunks.length) { resolve(); return }
-      const encoded = encodeURIComponent(chunks[i])
-      const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=tw-ob&q=${encoded}`
-      const audio = new Audio(url)
-      currentAudio = audio
-      audio.onended = () => { i++; playNext() }
-      audio.onerror = () => { i++; playNext() }
-      audio.play().catch(() => { i++; playNext() })
+      const u = new SpeechSynthesisUtterance(chunks[i])
+      if (bestVoice) u.voice = bestVoice
+      u.lang = bestVoice?.lang?.startsWith('ka') ? 'ka-GE' : (bestVoice?.lang || 'ka-GE')
+      u.rate = 0.95
+      u.pitch = 1
+      u.onend = () => { i++; speakNext() }
+      u.onerror = () => { i++; speakNext() }
+      window.speechSynthesis.speak(u)
+
+      // Chrome bug workaround: resume if paused
+      const watchdog = setInterval(() => {
+        if (!window.speechSynthesis.speaking) {
+          clearInterval(watchdog)
+        } else {
+          window.speechSynthesis.pause()
+          window.speechSynthesis.resume()
+        }
+      }, 10000)
+      u.onend = () => { clearInterval(watchdog); i++; speakNext() }
+      u.onerror = () => { clearInterval(watchdog); i++; speakNext() }
     }
 
-    playNext()
+    speakNext()
   })
 }
 
 function stopSpeaking() {
-  if (currentAudio) {
-    currentAudio.pause()
-    currentAudio = null
-  }
+  if (window.speechSynthesis) window.speechSynthesis.cancel()
 }
 
 function getSpeechRecognition() {
@@ -329,6 +352,18 @@ function App() {
       setListening(false)
       setHandsFree(false)
     } else {
+      // Check if TTS is available
+      if (!window.speechSynthesis) {
+        setError('ხმოვანი რეჟიმი არ არის ხელმისაწვდომი ამ ბრაუზერში')
+        return
+      }
+      loadVoices()
+      if (!voicesReady) {
+        setError('ხმოვანი რეჟიმი: ხმები არ მოიძებნა. სცადეთ Safari ან Chrome.')
+        return
+      }
+      // Test speak to confirm it works + require user gesture
+      speak('ხმოვანი რეჟიმი ჩართულია')
       setHandsFree(true)
     }
   }
