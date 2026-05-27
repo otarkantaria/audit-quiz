@@ -41,6 +41,12 @@ function App() {
   const [elapsed, setElapsed] = useState(0)
   const [reviewMode, setReviewMode] = useState(false)
   const [revealed, setRevealed] = useState({})
+  const [reviewStatus, setReviewStatus] = useState(() => {
+    try {
+      const saved = localStorage.getItem('audit_quiz_reviews')
+      return saved ? JSON.parse(saved) : {}
+    } catch { return {} }
+  })
 
   useEffect(() => {
     fetch('./question_bank.json')
@@ -84,6 +90,7 @@ function App() {
     setElapsed(0)
     setReviewMode(false)
     setRevealed({})
+    setReviewStatus({})
     setView('quiz')
     timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
   }
@@ -160,6 +167,14 @@ function App() {
     const m = Math.floor(s / 60)
     const sec = s % 60
     return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
+  }
+
+  function reviewQuestion(questionId, action) {
+    setReviewStatus(prev => {
+      const updated = { ...prev, [questionId]: action }
+      localStorage.setItem('audit_quiz_reviews', JSON.stringify(updated))
+      return updated
+    })
   }
 
   function getTopicStats(topicId) {
@@ -312,6 +327,31 @@ function App() {
                 )
               })}
             </div>
+
+            {(revealed[questions[currentQ].id] || reviewMode) && (
+              <div className="review-actions">
+                {(() => {
+                  const qId = questions[currentQ].id
+                  const status = reviewStatus[qId] || (questions[currentQ].confirmed ? 'confirm' : questions[currentQ].needs_review ? 'flag' : null)
+                  return (
+                    <>
+                      <button
+                        className={`btn-review btn-flag ${status === 'flag' ? 'active' : ''}`}
+                        onClick={() => reviewQuestion(qId, 'flag')}
+                      >
+                        {status === 'flag' ? '⚠ მონიშნული' : '⚠ მონიშვნა'}
+                      </button>
+                      <button
+                        className={`btn-review btn-confirm ${status === 'confirm' ? 'active' : ''}`}
+                        onClick={() => reviewQuestion(qId, 'confirm')}
+                      >
+                        {status === 'confirm' ? '✓ დადასტურებული' : '✓ დადასტურება'}
+                      </button>
+                    </>
+                  )
+                })()}
+              </div>
+            )}
           </div>
 
           <div className="quiz-nav">
