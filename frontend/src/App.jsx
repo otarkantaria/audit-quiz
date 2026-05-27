@@ -321,6 +321,13 @@ function App() {
         setError('ხმოვანი რეჟიმი არ არის ხელმისაწვდომი ამ ბრაუზერში')
         return
       }
+      // Check if Georgian voice is available
+      const voices = synth.getVoices()
+      const hasGeorgian = voices.some(v => v.lang.startsWith('ka'))
+      if (!hasGeorgian) {
+        setError('ქართული ხმა არ არის დაინსტალირებული. Settings → Accessibility → Spoken Content → Voices → Georgian (ქართული) → ჩამოტვირთეთ Mekhi')
+        return
+      }
       // iOS REQUIRES speak() in the direct tap handler call stack.
       // This "unlocks" audio for all subsequent speaks.
       const u = new SpeechSynthesisUtterance('ხმოვანი რეჟიმი ჩართულია')
