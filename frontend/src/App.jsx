@@ -27,90 +27,39 @@ function saveProgress(data) {
 const OPTION_KEYS = ['ა', 'ბ', 'გ', 'დ']
 const VOICE_MAP = { a: 'ა', b: 'ბ', c: 'გ', d: 'დ', '1': 'ა', '2': 'ბ', '3': 'გ', '4': 'დ' }
 
-// Wait for voices to load (they're async in most browsers)
-let voicesReady = false
-let bestVoice = null
-
-function loadVoices() {
-  const synth = window.speechSynthesis
-  if (!synth) return
-  const voices = synth.getVoices()
-  if (!voices.length) return
-
-  // Find Georgian voice — iOS uses "Mekhi" (ka-GE), macOS may have others
-  bestVoice = voices.find(v => v.lang === 'ka-GE') ||
-              voices.find(v => v.lang.startsWith('ka')) ||
-              null
-  voicesReady = true
-  console.log('TTS: found', voices.length, 'voices. Georgian:', bestVoice?.name || 'none',
-    '\nAll:', voices.map(v => v.lang + ':' + v.name).join(', '))
-}
-
-if (window.speechSynthesis) {
-  loadVoices()
-  // Chrome/desktop loads voices async; iOS Safari has them immediately
-  if (!voicesReady) {
-    window.speechSynthesis.onvoiceschanged = loadVoices
-  }
-}
+// --- TTS: simple queue-based approach for iOS Safari compatibility ---
+const speechQueue = []
+let isSpeaking = false
 
 function speak(text) {
   return new Promise(resolve => {
     const synth = window.speechSynthesis
     if (!synth) { resolve(); return }
 
-    // Re-check voices (iOS sometimes needs this)
-    if (!voicesReady) loadVoices()
+    // Queue the utterance
+    const u = new SpeechSynthesisUtterance(text)
+    u.lang = 'ka-GE'
+    u.rate = 0.9
+    u.onend = () => { isSpeaking = false; processQueue(); resolve() }
+    u.onerror = () => { isSpeaking = false; processQueue(); resolve() }
 
-    synth.cancel()
-
-    // Split long text — iOS and Chrome both choke on long utterances
-    const maxLen = 150
-    const chunks = []
-    let remaining = text
-    while (remaining.length > maxLen) {
-      let cut = remaining.lastIndexOf('.', maxLen)
-      if (cut < 30) cut = remaining.lastIndexOf(',', maxLen)
-      if (cut < 30) cut = remaining.lastIndexOf(' ', maxLen)
-      if (cut < 30) cut = maxLen
-      chunks.push(remaining.slice(0, cut + 1).trim())
-      remaining = remaining.slice(cut + 1).trim()
-    }
-    if (remaining) chunks.push(remaining)
-
-    let i = 0
-    function speakNext() {
-      if (i >= chunks.length) { resolve(); return }
-      const u = new SpeechSynthesisUtterance(chunks[i])
-      // Always set lang to ka-GE for Georgian text
-      u.lang = 'ka-GE'
-      if (bestVoice) u.voice = bestVoice
-      u.rate = 0.9
-      u.pitch = 1
-
-      u.onend = () => { i++; speakNext() }
-      u.onerror = (e) => {
-        console.warn('TTS chunk error:', e)
-        i++
-        speakNext()
-      }
-
-      synth.speak(u)
-
-      // Safety timeout — if utterance hangs, skip after 30s
-      const timeout = setTimeout(() => {
-        if (synth.speaking) { synth.cancel(); i++; speakNext() }
-      }, 30000)
-      const origEnd = u.onend
-      u.onend = () => { clearTimeout(timeout); origEnd() }
-      u.onerror = (e) => { clearTimeout(timeout); console.warn('TTS error:', e); i++; speakNext() }
-    }
-
-    speakNext()
+    speechQueue.push(u)
+    processQueue()
   })
 }
 
+function processQueue() {
+  if (isSpeaking || !speechQueue.length) return
+  const synth = window.speechSynthesis
+  if (!synth) return
+  isSpeaking = true
+  const u = speechQueue.shift()
+  synth.speak(u)
+}
+
 function stopSpeaking() {
+  speechQueue.length = 0
+  isSpeaking = false
   if (window.speechSynthesis) window.speechSynthesis.cancel()
 }
 
@@ -367,23 +316,17 @@ function App() {
       setHandsFree(false)
     } else {
       // Check if TTS is available
-      if (!window.speechSynthesis) {
+      const synth = window.speechSynthesis
+      if (!synth) {
         setError('ხმოვანი რეჟიმი არ არის ხელმისაწვდომი ამ ბრაუზერში')
         return
       }
-      // Force voice reload on iOS
-      loadVoices()
-      // iOS Safari: voices are available immediately, no need to wait
-      // If still no Georgian voice, warn but allow (will use default)
-      if (!bestVoice) {
-        console.warn('No Georgian voice found, using default')
-      }
-      // Test speak — this also satisfies iOS user-gesture requirement
+      // iOS REQUIRES speak() in the direct tap handler call stack.
+      // This "unlocks" audio for all subsequent speaks.
       const u = new SpeechSynthesisUtterance('ხმოვანი რეჟიმი ჩართულია')
       u.lang = 'ka-GE'
-      if (bestVoice) u.voice = bestVoice
       u.rate = 0.9
-      window.speechSynthesis.speak(u)
+      synth.speak(u)
       setHandsFree(true)
     }
   }
