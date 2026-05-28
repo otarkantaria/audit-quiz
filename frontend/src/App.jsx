@@ -27,7 +27,7 @@ function App() {
   const [view, setView] = useState('home')
   const [bank, setBank] = useState([])
   const [topics, setTopics] = useState([])
-  const [selectedTopic, setSelectedTopic] = useState(null)
+  const [selectedTopics, setSelectedTopics] = useState(new Set())
   const [questionCount, setQuestionCount] = useState(10)
   const [questions, setQuestions] = useState([])
   const [currentQ, setCurrentQ] = useState(0)
@@ -77,16 +77,49 @@ function App() {
       })
   }, [])
 
+  function toggleTopic(topicId) {
+    setSelectedTopics(prev => {
+      const next = new Set(prev)
+      if (topicId === null) {
+        // "All topics" — clear selection
+        return new Set()
+      }
+      if (next.has(topicId)) {
+        next.delete(topicId)
+      } else {
+        next.add(topicId)
+      }
+      return next
+    })
+  }
+
   function startQuiz() {
-    let pool = bank
-    if (selectedTopic && selectedTopic !== 'all') {
-      pool = bank.filter(q => q.topic === selectedTopic)
+    let selected
+    if (selectedTopics.size === 0) {
+      // All topics
+      const pool = shuffleArray(bank)
+      selected = pool.slice(0, questionCount)
+    } else if (selectedTopics.size === 1) {
+      // Single topic
+      const pool = shuffleArray(bank.filter(q => selectedTopics.has(q.topic)))
+      selected = pool.slice(0, questionCount)
+    } else {
+      // Multi-topic: sample equally from each
+      const topicArr = [...selectedTopics]
+      const perTopic = Math.floor(questionCount / topicArr.length)
+      const remainder = questionCount % topicArr.length
+      let picks = []
+      for (let i = 0; i < topicArr.length; i++) {
+        const pool = shuffleArray(bank.filter(q => q.topic === topicArr[i]))
+        const take = perTopic + (i < remainder ? 1 : 0)
+        picks.push(...pool.slice(0, take))
+      }
+      selected = shuffleArray(picks)
     }
-    if (!pool.length) {
+    if (!selected.length) {
       setError('კითხვები ვერ მოიძებნა')
       return
     }
-    const selected = shuffleArray(pool).slice(0, questionCount)
     setQuestions(selected)
     setCurrentQ(0)
     setAnswers({})
@@ -136,14 +169,14 @@ function App() {
     const p = loadProgress()
     const session = {
       timestamp: new Date().toISOString(),
-      topic_id: selectedTopic || 'all',
+      topic_id: selectedTopics.size === 0 ? 'all' : [...selectedTopics].join(' + '),
       total: questions.length,
       correct,
       score,
       time_spent_seconds: elapsed,
     }
     p.sessions.push(session)
-    const topic = selectedTopic || 'all'
+    const topic = selectedTopics.size === 0 ? 'all' : [...selectedTopics].join(' + ')
     if (!p.topic_stats[topic]) {
       p.topic_stats[topic] = { attempts: 0, total_questions: 0, total_correct: 0 }
     }
@@ -244,8 +277,8 @@ function App() {
 
               <div className="topics">
                 <div
-                  className={`topic-card ${selectedTopic === null ? 'selected' : ''}`}
-                  onClick={() => setSelectedTopic(null)}
+                  className={`topic-card ${selectedTopics.size === 0 ? 'selected' : ''}`}
+                  onClick={() => toggleTopic(null)}
                 >
                   <div>
                     <h3>ყველა თემა</h3>
@@ -265,8 +298,8 @@ function App() {
                   return (
                     <div
                       key={topic.id}
-                      className={`topic-card ${selectedTopic === topic.id ? 'selected' : ''}`}
-                      onClick={() => setSelectedTopic(topic.id)}
+                      className={`topic-card ${selectedTopics.has(topic.id) ? 'selected' : ''}`}
+                      onClick={() => toggleTopic(topic.id)}
                     >
                       <div>
                         <h3>{topic.name}</h3>
