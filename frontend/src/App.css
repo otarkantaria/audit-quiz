@@ -137,6 +137,79 @@
   background: rgba(59, 130, 246, 0.1);
 }
 
+.topic-group {
+  border: 1px solid #334155;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.topic-group-header {
+  background: #1e293b;
+  padding: 1.2rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.topic-group-header:hover {
+  background: #253347;
+}
+
+.topic-group-header.selected {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.topic-group-header.partial {
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.topic-group-left {
+  flex: 1;
+}
+
+.topic-group-header h3 {
+  font-size: 1.05rem;
+  color: #f8fafc;
+}
+
+.expand-btn {
+  background: none;
+  border: 1px solid #475569;
+  color: #94a3b8;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  margin-left: 1rem;
+}
+
+.expand-btn:hover {
+  background: #334155;
+  color: #e2e8f0;
+}
+
+.topic-group-children {
+  border-top: 1px solid #334155;
+  padding: 0.5rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.topic-card.child {
+  margin-left: 0.5rem;
+  border-radius: 8px;
+  padding: 0.9rem 1.2rem;
+}
+
 .topic-card h3 {
   font-size: 1.05rem;
   color: #f8fafc;

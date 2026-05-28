@@ -49,6 +49,12 @@ function App() {
   })
   const [cards, setCards] = useState([])
   const [currentCard, setCurrentCard] = useState(0)
+  const [expandedGroups, setExpandedGroups] = useState(new Set())
+
+  // Topics that belong to "სახელმძღვანელო" parent group
+  const HANDBOOK_TOPICS = ['შუალედური გამოცდა', 'სახელმძღვანელო']
+  // Display name overrides
+  const TOPIC_DISPLAY = { 'სახელმძღვანელო': 'პრაქტიკული სავარჯიშოები' }
 
   useEffect(() => {
     fetch('./question_bank.json')
@@ -63,14 +69,7 @@ function App() {
         }
         setTopics(
           Object.entries(byTopic)
-            .sort(([a], [b]) => {
-              // "შუალედური გამოცდა" always first, "სახელმძღვანელო" always second
-              if (a === 'შუალედური გამოცდა') return -1
-              if (b === 'შუალედური გამოცდა') return 1
-              if (a === 'სახელმძღვანელო') return -1
-              if (b === 'სახელმძღვანელო') return 1
-              return a.localeCompare(b)
-            })
+            .sort(([a], [b]) => a.localeCompare(b))
             .map(([name, count]) => ({ id: name, name, question_count: count }))
         )
         setLoading(false)
@@ -85,7 +84,6 @@ function App() {
     setSelectedTopics(prev => {
       const next = new Set(prev)
       if (topicId === null) {
-        // "All topics" — clear selection
         return new Set()
       }
       if (next.has(topicId)) {
@@ -97,8 +95,34 @@ function App() {
     })
   }
 
-  // Topics excluded from "ყველა თემა" — only accessible via their own category
-  const SEPARATE_TOPICS = ['სახელმძღვანელო']
+  function toggleGroupTopics(groupTopicNames) {
+    setSelectedTopics(prev => {
+      const next = new Set(prev)
+      const allSelected = groupTopicNames.every(t => next.has(t))
+      if (allSelected) {
+        groupTopicNames.forEach(t => next.delete(t))
+      } else {
+        groupTopicNames.forEach(t => next.add(t))
+      }
+      return next
+    })
+  }
+
+  function toggleGroupExpand(groupName) {
+    setExpandedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(groupName)) {
+        next.delete(groupName)
+      } else {
+        next.add(groupName)
+      }
+      return next
+    })
+  }
+
+  // Derive groups from topics
+  const handbookChildren = topics.filter(t => HANDBOOK_TOPICS.includes(t.name))
+  const aiChildren = topics.filter(t => !HANDBOOK_TOPICS.includes(t.name))
 
   const CARD_COLORS = [
     '#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c',
@@ -109,7 +133,7 @@ function App() {
   function startCards() {
     let selected
     if (selectedTopics.size === 0) {
-      selected = shuffleArray(bank.filter(q => !SEPARATE_TOPICS.includes(q.topic))).slice(0, questionCount)
+      selected = shuffleArray(bank).slice(0, questionCount)
     } else if (selectedTopics.size === 1) {
       selected = shuffleArray(bank.filter(q => selectedTopics.has(q.topic))).slice(0, questionCount)
     } else {
@@ -136,8 +160,8 @@ function App() {
   function startQuiz() {
     let selected
     if (selectedTopics.size === 0) {
-      // All topics — exclude separate categories
-      const pool = shuffleArray(bank.filter(q => !SEPARATE_TOPICS.includes(q.topic)))
+      // All topics
+      const pool = shuffleArray(bank)
       selected = pool.slice(0, questionCount)
     } else if (selectedTopics.size === 1) {
       // Single topic
@@ -320,6 +344,7 @@ function App() {
               </div>
 
               <div className="topics">
+                {/* ყველა თემა */}
                 <div
                   className={`topic-card ${selectedTopics.size === 0 ? 'selected' : ''}`}
                   onClick={() => toggleTopic(null)}
@@ -337,28 +362,102 @@ function App() {
                   )}
                 </div>
 
-                {topics.map(topic => {
-                  const stats = getTopicStats(topic.id)
+                {/* სახელმძღვანელო group */}
+                {handbookChildren.length > 0 && (() => {
+                  const childNames = handbookChildren.map(t => t.name)
+                  const allSelected = childNames.every(t => selectedTopics.has(t))
+                  const someSelected = childNames.some(t => selectedTopics.has(t))
+                  const totalCount = handbookChildren.reduce((s, t) => s + t.question_count, 0)
+                  const isExpanded = expandedGroups.has('handbook')
                   return (
-                    <div
-                      key={topic.id}
-                      className={`topic-card ${selectedTopics.has(topic.id) ? 'selected' : ''}`}
-                      onClick={() => toggleTopic(topic.id)}
-                    >
-                      <div>
-                        <h3>{topic.name}</h3>
-                        <span className="chunk-count">{topic.question_count} კითხვა</span>
+                    <div className="topic-group">
+                      <div className={`topic-group-header ${allSelected ? 'selected' : someSelected ? 'partial' : ''}`}>
+                        <div className="topic-group-left" onClick={() => toggleGroupTopics(childNames)}>
+                          <h3>სახელმძღვანელო</h3>
+                          <span className="chunk-count">{totalCount} კითხვა</span>
+                        </div>
+                        <button className="expand-btn" onClick={() => toggleGroupExpand('handbook')}>
+                          {isExpanded ? '▲' : '▼'}
+                        </button>
                       </div>
-                      {stats && (
-                        <div className="stats">
-                          <div className="score" style={{ color: stats.total_correct / stats.total_questions >= 0.7 ? '#22c55e' : '#fbbf24' }}>
-                            {Math.round(stats.total_correct / stats.total_questions * 100)}%
-                          </div>
+                      {isExpanded && (
+                        <div className="topic-group-children">
+                          {handbookChildren.map(topic => {
+                            const displayName = TOPIC_DISPLAY[topic.name] || topic.name
+                            const stats = getTopicStats(topic.id)
+                            return (
+                              <div
+                                key={topic.id}
+                                className={`topic-card child ${selectedTopics.has(topic.id) ? 'selected' : ''}`}
+                                onClick={() => toggleTopic(topic.id)}
+                              >
+                                <div>
+                                  <h3>{displayName}</h3>
+                                  <span className="chunk-count">{topic.question_count} კითხვა</span>
+                                </div>
+                                {stats && (
+                                  <div className="stats">
+                                    <div className="score" style={{ color: stats.total_correct / stats.total_questions >= 0.7 ? '#22c55e' : '#fbbf24' }}>
+                                      {Math.round(stats.total_correct / stats.total_questions * 100)}%
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
                         </div>
                       )}
                     </div>
                   )
-                })}
+                })()}
+
+                {/* AI შეკითხვები group */}
+                {aiChildren.length > 0 && (() => {
+                  const childNames = aiChildren.map(t => t.name)
+                  const allSelected = childNames.every(t => selectedTopics.has(t))
+                  const someSelected = childNames.some(t => selectedTopics.has(t))
+                  const totalCount = aiChildren.reduce((s, t) => s + t.question_count, 0)
+                  const isExpanded = expandedGroups.has('ai')
+                  return (
+                    <div className="topic-group">
+                      <div className={`topic-group-header ${allSelected ? 'selected' : someSelected ? 'partial' : ''}`}>
+                        <div className="topic-group-left" onClick={() => toggleGroupTopics(childNames)}>
+                          <h3>AI შეკითხვები</h3>
+                          <span className="chunk-count">{totalCount} კითხვა</span>
+                        </div>
+                        <button className="expand-btn" onClick={() => toggleGroupExpand('ai')}>
+                          {isExpanded ? '▲' : '▼'}
+                        </button>
+                      </div>
+                      {isExpanded && (
+                        <div className="topic-group-children">
+                          {aiChildren.map(topic => {
+                            const stats = getTopicStats(topic.id)
+                            return (
+                              <div
+                                key={topic.id}
+                                className={`topic-card child ${selectedTopics.has(topic.id) ? 'selected' : ''}`}
+                                onClick={() => toggleTopic(topic.id)}
+                              >
+                                <div>
+                                  <h3>{topic.name}</h3>
+                                  <span className="chunk-count">{topic.question_count} კითხვა</span>
+                                </div>
+                                {stats && (
+                                  <div className="stats">
+                                    <div className="score" style={{ color: stats.total_correct / stats.total_questions >= 0.7 ? '#22c55e' : '#fbbf24' }}>
+                                      {Math.round(stats.total_correct / stats.total_questions * 100)}%
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             </>
           )}
