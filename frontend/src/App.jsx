@@ -61,7 +61,12 @@ function App() {
         }
         setTopics(
           Object.entries(byTopic)
-            .sort(([a], [b]) => a.localeCompare(b))
+            .sort(([a], [b]) => {
+              // "შუალედური გამოცდა" always first
+              if (a === 'შუალედური გამოცდა') return -1
+              if (b === 'შუალედური გამოცდა') return 1
+              return a.localeCompare(b)
+            })
             .map(([name, count]) => ({ id: name, name, question_count: count }))
         )
         setLoading(false)
@@ -222,6 +227,21 @@ function App() {
             </div>
           ) : (
             <>
+              <div className="quiz-controls">
+                <label>კითხვების რაოდენობა:</label>
+                <select value={questionCount} onChange={e => setQuestionCount(Number(e.target.value))}>
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={15}>15</option>
+                  <option value={20}>20</option>
+                  <option value={30}>30</option>
+                  <option value={50}>50</option>
+                </select>
+                <button className="btn btn-primary" onClick={startQuiz}>
+                  ტესტის დაწყება
+                </button>
+              </div>
+
               <div className="topics">
                 <div
                   className={`topic-card ${selectedTopic === null ? 'selected' : ''}`}
@@ -262,21 +282,6 @@ function App() {
                     </div>
                   )
                 })}
-              </div>
-
-              <div className="quiz-controls">
-                <label>კითხვების რაოდენობა:</label>
-                <select value={questionCount} onChange={e => setQuestionCount(Number(e.target.value))}>
-                  <option value={5}>5</option>
-                  <option value={10}>10</option>
-                  <option value={15}>15</option>
-                  <option value={20}>20</option>
-                  <option value={30}>30</option>
-                  <option value={50}>50</option>
-                </select>
-                <button className="btn btn-primary" onClick={startQuiz}>
-                  ტესტის დაწყება
-                </button>
               </div>
             </>
           )}
