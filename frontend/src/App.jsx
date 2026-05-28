@@ -295,6 +295,9 @@ function App() {
 
           <div className="question-card">
             <h3>{questions[currentQ].question}</h3>
+            {questions[currentQ].english_summary && (
+              <p className="english-summary">({questions[currentQ].english_summary})</p>
+            )}
             <div className="options">
               {Object.entries(questions[currentQ].options).map(([key, value]) => {
                 let className = 'option'
