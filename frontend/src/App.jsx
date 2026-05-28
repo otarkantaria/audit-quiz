@@ -47,6 +47,8 @@ function App() {
       return saved ? JSON.parse(saved) : {}
     } catch { return {} }
   })
+  const [cards, setCards] = useState([])
+  const [currentCard, setCurrentCard] = useState(0)
 
   useEffect(() => {
     fetch('./question_bank.json')
@@ -91,6 +93,39 @@ function App() {
       }
       return next
     })
+  }
+
+  const CARD_COLORS = [
+    '#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c',
+    '#3498db', '#9b59b6', '#e84393', '#00b894', '#6c5ce7',
+    '#fd79a8', '#00cec9', '#d63031', '#0984e3', '#a29bfe',
+  ]
+
+  function startCards() {
+    let selected
+    if (selectedTopics.size === 0) {
+      selected = shuffleArray(bank).slice(0, questionCount)
+    } else if (selectedTopics.size === 1) {
+      selected = shuffleArray(bank.filter(q => selectedTopics.has(q.topic))).slice(0, questionCount)
+    } else {
+      const topicArr = [...selectedTopics]
+      const perTopic = Math.floor(questionCount / topicArr.length)
+      const remainder = questionCount % topicArr.length
+      let picks = []
+      for (let i = 0; i < topicArr.length; i++) {
+        const pool = shuffleArray(bank.filter(q => q.topic === topicArr[i]))
+        const take = perTopic + (i < remainder ? 1 : 0)
+        picks.push(...pool.slice(0, take))
+      }
+      selected = shuffleArray(picks)
+    }
+    if (!selected.length) {
+      setError('კითხვები ვერ მოიძებნა')
+      return
+    }
+    setCards(selected)
+    setCurrentCard(0)
+    setView('cards')
   }
 
   function startQuiz() {
@@ -239,7 +274,7 @@ function App() {
 
       {error && <div className="error-msg">{error}</div>}
 
-      {view !== 'quiz' && (
+      {view !== 'quiz' && view !== 'cards' && (
         <div className="nav">
           <button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}>
             თემები
@@ -261,7 +296,7 @@ function App() {
           ) : (
             <>
               <div className="quiz-controls">
-                <label>კითხვების რაოდენობა:</label>
+                <label>რაოდენობა:</label>
                 <select value={questionCount} onChange={e => setQuestionCount(Number(e.target.value))}>
                   <option value={5}>5</option>
                   <option value={10}>10</option>
@@ -269,9 +304,13 @@ function App() {
                   <option value={20}>20</option>
                   <option value={30}>30</option>
                   <option value={50}>50</option>
+                  <option value={60}>60</option>
                 </select>
                 <button className="btn btn-primary" onClick={startQuiz}>
                   ტესტის დაწყება
+                </button>
+                <button className="btn btn-cards" onClick={startCards}>
+                  ბარათები
                 </button>
               </div>
 
@@ -440,6 +479,72 @@ function App() {
           </div>
         </>
       )}
+
+      {/* CARDS */}
+      {view === 'cards' && cards.length > 0 && (() => {
+        const card = cards[currentCard]
+        const color = CARD_COLORS[currentCard % CARD_COLORS.length]
+        const correctKey = card.correct
+        const correctText = card.options[correctKey]
+        const explanation = card.explanations?.[correctKey] || ''
+        const englishSummary = card.english_summary || ''
+        return (
+          <>
+            <div className="cards-header">
+              <span className="counter">{currentCard + 1} / {cards.length}</span>
+              <button className="btn btn-secondary" onClick={goHome}>მთავარი</button>
+            </div>
+
+            <div className="flashcard" style={{ background: color }}>
+              <div className="flashcard-question">{card.question}</div>
+              <div className="flashcard-divider" />
+              <div className="flashcard-answer">
+                <span className="flashcard-label">პასუხი:</span>
+                <span>{correctKey}) {correctText}</span>
+              </div>
+              {explanation && (
+                <div className="flashcard-explanation">
+                  <span className="flashcard-label">ახსნა:</span>
+                  <span>{explanation}</span>
+                </div>
+              )}
+              {englishSummary && (
+                <div className="flashcard-english">
+                  <span className="flashcard-label">English:</span>
+                  <span>{englishSummary}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="quiz-nav">
+              <button
+                className="btn btn-secondary"
+                onClick={() => setCurrentCard(c => c - 1)}
+                disabled={currentCard === 0}
+              >
+                წინა
+              </button>
+              <span className="cards-progress-dots">
+                {cards.map((_, i) => (
+                  <span
+                    key={i}
+                    className={`dot ${i === currentCard ? 'active' : ''}`}
+                    style={{ background: i === currentCard ? CARD_COLORS[i % CARD_COLORS.length] : '#475569' }}
+                    onClick={() => setCurrentCard(i)}
+                  />
+                ))}
+              </span>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setCurrentCard(c => c + 1)}
+                disabled={currentCard === cards.length - 1}
+              >
+                შემდეგი
+              </button>
+            </div>
+          </>
+        )
+      })()}
 
       {/* RESULTS */}
       {view === 'results' && results && (
