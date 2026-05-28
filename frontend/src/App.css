@@ -562,10 +562,22 @@
   gap: 1rem;
 }
 
+.flashcard-badge {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.25);
+  padding: 0.25rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .flashcard-question {
   font-size: 1.15rem;
   font-weight: 600;
   line-height: 1.7;
+  white-space: pre-line;
 }
 
 .flashcard-divider {

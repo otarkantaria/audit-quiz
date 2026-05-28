@@ -157,15 +157,18 @@ function App() {
     setView('cards')
   }
 
+  // MCQ-only bank for quiz mode (excludes open-ended questions)
+  const mcqBank = bank.filter(q => q.type !== 'open')
+
   function startQuiz() {
     let selected
     if (selectedTopics.size === 0) {
       // All topics
-      const pool = shuffleArray(bank)
+      const pool = shuffleArray(mcqBank)
       selected = pool.slice(0, questionCount)
     } else if (selectedTopics.size === 1) {
       // Single topic
-      const pool = shuffleArray(bank.filter(q => selectedTopics.has(q.topic)))
+      const pool = shuffleArray(mcqBank.filter(q => selectedTopics.has(q.topic)))
       selected = pool.slice(0, questionCount)
     } else {
       // Multi-topic: sample equally from each
@@ -174,7 +177,7 @@ function App() {
       const remainder = questionCount % topicArr.length
       let picks = []
       for (let i = 0; i < topicArr.length; i++) {
-        const pool = shuffleArray(bank.filter(q => q.topic === topicArr[i]))
+        const pool = shuffleArray(mcqBank.filter(q => q.topic === topicArr[i]))
         const take = perTopic + (i < remainder ? 1 : 0)
         picks.push(...pool.slice(0, take))
       }
@@ -588,9 +591,10 @@ function App() {
       {view === 'cards' && cards.length > 0 && (() => {
         const card = cards[currentCard]
         const color = CARD_COLORS[currentCard % CARD_COLORS.length]
+        const isOpen = card.type === 'open'
         const correctKey = card.correct
-        const correctText = card.options[correctKey]
-        const explanation = card.explanations?.[correctKey] || ''
+        const correctText = isOpen ? null : card.options?.[correctKey]
+        const explanation = isOpen ? null : card.explanations?.[correctKey] || ''
         const englishSummary = card.english_summary || ''
         return (
           <>
@@ -599,14 +603,17 @@ function App() {
               <button className="btn btn-secondary" onClick={goHome}>მთავარი</button>
             </div>
 
-            <div className="flashcard" style={{ background: color }}>
+            <div className="flashcard" style={{ background: isOpen ? '#1a5276' : color }}>
+              {isOpen && <span className="flashcard-badge">ამოცანა</span>}
               <div className="flashcard-question">{card.question}</div>
               <div className="flashcard-divider" />
-              <div className="flashcard-answer">
-                <span className="flashcard-label">პასუხი:</span>
-                <span>{correctKey}) {correctText}</span>
-              </div>
-              {explanation && (
+              {!isOpen && correctText && (
+                <div className="flashcard-answer">
+                  <span className="flashcard-label">პასუხი:</span>
+                  <span>{correctKey}) {correctText}</span>
+                </div>
+              )}
+              {!isOpen && explanation && (
                 <div className="flashcard-explanation">
                   <span className="flashcard-label">ახსნა:</span>
                   <span>{explanation}</span>
@@ -614,7 +621,7 @@ function App() {
               )}
               {englishSummary && (
                 <div className="flashcard-english">
-                  <span className="flashcard-label">English:</span>
+                  <span className="flashcard-label">{isOpen ? 'დავალება / Task:' : 'English:'}</span>
                   <span>{englishSummary}</span>
                 </div>
               )}
