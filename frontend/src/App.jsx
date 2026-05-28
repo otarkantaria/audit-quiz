@@ -64,9 +64,11 @@ function App() {
         setTopics(
           Object.entries(byTopic)
             .sort(([a], [b]) => {
-              // "შუალედური გამოცდა" always first
+              // "შუალედური გამოცდა" always first, "სახელმძღვანელო" always second
               if (a === 'შუალედური გამოცდა') return -1
               if (b === 'შუალედური გამოცდა') return 1
+              if (a === 'სახელმძღვანელო') return -1
+              if (b === 'სახელმძღვანელო') return 1
               return a.localeCompare(b)
             })
             .map(([name, count]) => ({ id: name, name, question_count: count }))
@@ -95,6 +97,9 @@ function App() {
     })
   }
 
+  // Topics excluded from "ყველა თემა" — only accessible via their own category
+  const SEPARATE_TOPICS = ['სახელმძღვანელო']
+
   const CARD_COLORS = [
     '#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c',
     '#3498db', '#9b59b6', '#e84393', '#00b894', '#6c5ce7',
@@ -104,7 +109,7 @@ function App() {
   function startCards() {
     let selected
     if (selectedTopics.size === 0) {
-      selected = shuffleArray(bank).slice(0, questionCount)
+      selected = shuffleArray(bank.filter(q => !SEPARATE_TOPICS.includes(q.topic))).slice(0, questionCount)
     } else if (selectedTopics.size === 1) {
       selected = shuffleArray(bank.filter(q => selectedTopics.has(q.topic))).slice(0, questionCount)
     } else {
@@ -131,8 +136,8 @@ function App() {
   function startQuiz() {
     let selected
     if (selectedTopics.size === 0) {
-      // All topics
-      const pool = shuffleArray(bank)
+      // All topics — exclude separate categories
+      const pool = shuffleArray(bank.filter(q => !SEPARATE_TOPICS.includes(q.topic)))
       selected = pool.slice(0, questionCount)
     } else if (selectedTopics.size === 1) {
       // Single topic
