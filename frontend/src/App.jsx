@@ -24,13 +24,13 @@ function saveProgress(data) {
 }
 
 const HANDBOOK_TOPICS = ['შუალედური გამოცდა', 'სახელმძღვანელო']
-const COUNT_STOPS = [10, 20, 50]
+const COUNT_STOPS = [10, 30, 60]
 
 function App() {
   const [view, setView] = useState('home')
   const [bank, setBank] = useState([])
   const [selectedSources, setSelectedSources] = useState(new Set(['handbook', 'ai']))
-  const [questionCount, setQuestionCount] = useState(20)
+  const [questionCount, setQuestionCount] = useState(30)
   const [questions, setQuestions] = useState([])
   const [currentQ, setCurrentQ] = useState(0)
   const [answers, setAnswers] = useState({})
