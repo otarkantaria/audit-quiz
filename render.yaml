@@ -1,16 +1,11 @@
 services:
   - type: web
-    name: audit-quiz-api
-    runtime: python
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    name: audit-quiz
+    runtime: docker
     envVars:
       - key: DATA_DIR
-        value: /opt/render/project/data
-      - key: PYTHON_VERSION
-        value: "3.11.6"
+        value: /app/data
     disk:
       name: quiz-data
-      mountPath: /opt/render/project/data
+      mountPath: /app/data
       sizeGB: 1
