@@ -23,12 +23,14 @@ function saveProgress(data) {
   localStorage.setItem('audit_quiz_progress', JSON.stringify(data))
 }
 
+const HANDBOOK_TOPICS = ['შუალედური გამოცდა', 'სახელმძღვანელო']
+const COUNT_STOPS = [10, 20, 50]
+
 function App() {
   const [view, setView] = useState('home')
   const [bank, setBank] = useState([])
-  const [topics, setTopics] = useState([])
-  const [selectedTopics, setSelectedTopics] = useState(new Set())
-  const [questionCount, setQuestionCount] = useState(10)
+  const [selectedSources, setSelectedSources] = useState(new Set(['handbook', 'ai']))
+  const [questionCount, setQuestionCount] = useState(20)
   const [questions, setQuestions] = useState([])
   const [currentQ, setCurrentQ] = useState(0)
   const [answers, setAnswers] = useState({})
@@ -49,29 +51,20 @@ function App() {
   })
   const [cards, setCards] = useState([])
   const [currentCard, setCurrentCard] = useState(0)
-  const [expandedGroups, setExpandedGroups] = useState(new Set())
+  const [flipped, setFlipped] = useState(false)
 
-  // Topics that belong to "სახელმძღვანელო" parent group
-  const HANDBOOK_TOPICS = ['შუალედური გამოცდა', 'სახელმძღვანელო']
-  // Display name overrides
-  const TOPIC_DISPLAY = { 'სახელმძღვანელო': 'პრაქტიკული სავარჯიშოები' }
+  // Correct count for live scoreboard
+  const correctSoFar = Object.keys(answers).filter(qId => {
+    const q = questions.find(x => x.id === qId)
+    return q && answers[qId] === q.correct
+  }).length
+  const wrongSoFar = Object.keys(revealed).length - correctSoFar
 
   useEffect(() => {
     fetch('./question_bank.json')
       .then(res => res.json())
       .then(data => {
         setBank(data)
-        const byTopic = {}
-        for (const q of data) {
-          const t = q.topic || 'ზოგადი'
-          if (!byTopic[t]) byTopic[t] = 0
-          byTopic[t]++
-        }
-        setTopics(
-          Object.entries(byTopic)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([name, count]) => ({ id: name, name, question_count: count }))
-        )
         setLoading(false)
       })
       .catch(() => {
@@ -80,109 +73,37 @@ function App() {
       })
   }, [])
 
-  function toggleTopic(topicId) {
-    setSelectedTopics(prev => {
+  // Derived counts
+  const handbookCount = bank.filter(q => HANDBOOK_TOPICS.includes(q.topic)).length
+  const aiCount = bank.filter(q => !HANDBOOK_TOPICS.includes(q.topic)).length
+
+  // Filtered pool based on source selection
+  function getPool(mcqOnly = false) {
+    let pool = bank
+    if (mcqOnly) pool = pool.filter(q => q.type !== 'open')
+
+    if (selectedSources.size === 0) return pool
+    if (selectedSources.has('handbook') && selectedSources.has('ai')) return pool
+    if (selectedSources.has('handbook')) return pool.filter(q => HANDBOOK_TOPICS.includes(q.topic))
+    if (selectedSources.has('ai')) return pool.filter(q => !HANDBOOK_TOPICS.includes(q.topic))
+    return pool
+  }
+
+  function toggleSource(src) {
+    setSelectedSources(prev => {
       const next = new Set(prev)
-      if (topicId === null) {
-        return new Set()
-      }
-      if (next.has(topicId)) {
-        next.delete(topicId)
+      if (next.has(src)) {
+        next.delete(src)
       } else {
-        next.add(topicId)
+        next.add(src)
       }
       return next
     })
   }
-
-  function toggleGroupTopics(groupTopicNames) {
-    setSelectedTopics(prev => {
-      const next = new Set(prev)
-      const allSelected = groupTopicNames.every(t => next.has(t))
-      if (allSelected) {
-        groupTopicNames.forEach(t => next.delete(t))
-      } else {
-        groupTopicNames.forEach(t => next.add(t))
-      }
-      return next
-    })
-  }
-
-  function toggleGroupExpand(groupName) {
-    setExpandedGroups(prev => {
-      const next = new Set(prev)
-      if (next.has(groupName)) {
-        next.delete(groupName)
-      } else {
-        next.add(groupName)
-      }
-      return next
-    })
-  }
-
-  // Derive groups from topics
-  const handbookChildren = topics.filter(t => HANDBOOK_TOPICS.includes(t.name))
-  const aiChildren = topics.filter(t => !HANDBOOK_TOPICS.includes(t.name))
-
-  const CARD_COLORS = [
-    '#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c',
-    '#3498db', '#9b59b6', '#e84393', '#00b894', '#6c5ce7',
-    '#fd79a8', '#00cec9', '#d63031', '#0984e3', '#a29bfe',
-  ]
-
-  function startCards() {
-    let selected
-    if (selectedTopics.size === 0) {
-      selected = shuffleArray(bank).slice(0, questionCount)
-    } else if (selectedTopics.size === 1) {
-      selected = shuffleArray(bank.filter(q => selectedTopics.has(q.topic))).slice(0, questionCount)
-    } else {
-      const topicArr = [...selectedTopics]
-      const perTopic = Math.floor(questionCount / topicArr.length)
-      const remainder = questionCount % topicArr.length
-      let picks = []
-      for (let i = 0; i < topicArr.length; i++) {
-        const pool = shuffleArray(bank.filter(q => q.topic === topicArr[i]))
-        const take = perTopic + (i < remainder ? 1 : 0)
-        picks.push(...pool.slice(0, take))
-      }
-      selected = shuffleArray(picks)
-    }
-    if (!selected.length) {
-      setError('კითხვები ვერ მოიძებნა')
-      return
-    }
-    setCards(selected)
-    setCurrentCard(0)
-    setView('cards')
-  }
-
-  // MCQ-only bank for quiz mode (excludes open-ended questions)
-  const mcqBank = bank.filter(q => q.type !== 'open')
 
   function startQuiz() {
-    let selected
-    if (selectedTopics.size === 0) {
-      // All topics
-      const pool = shuffleArray(mcqBank)
-      selected = pool.slice(0, questionCount)
-    } else if (selectedTopics.size === 1) {
-      // Single topic
-      const pool = shuffleArray(mcqBank.filter(q => selectedTopics.has(q.topic)))
-      selected = pool.slice(0, questionCount)
-    } else {
-      // Multi-topic: sample equally from each
-      const topicArr = [...selectedTopics]
-      const perTopic = Math.floor(questionCount / topicArr.length)
-      const remainder = questionCount % topicArr.length
-      let picks = []
-      for (let i = 0; i < topicArr.length; i++) {
-        const pool = shuffleArray(mcqBank.filter(q => q.topic === topicArr[i]))
-        const take = perTopic + (i < remainder ? 1 : 0)
-        picks.push(...pool.slice(0, take))
-      }
-      selected = shuffleArray(picks)
-    }
+    const pool = getPool(true)
+    const selected = shuffleArray(pool).slice(0, questionCount)
     if (!selected.length) {
       setError('კითხვები ვერ მოიძებნა')
       return
@@ -200,6 +121,19 @@ function App() {
     timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
   }
 
+  function startCards() {
+    const pool = getPool(false)
+    const selected = shuffleArray(pool).slice(0, questionCount)
+    if (!selected.length) {
+      setError('კითხვები ვერ მოიძებნა')
+      return
+    }
+    setCards(selected)
+    setCurrentCard(0)
+    setFlipped(false)
+    setView('cards')
+  }
+
   function selectAnswer(questionId, option) {
     if (revealed[questionId]) return
     setAnswers(prev => ({ ...prev, [questionId]: option }))
@@ -211,21 +145,14 @@ function App() {
       clearInterval(timerRef.current)
       timerRef.current = null
     }
-
     let correct = 0
     const resultList = []
     for (const q of questions) {
       const userAnswer = answers[q.id]
       const isCorrect = userAnswer === q.correct
       if (isCorrect) correct++
-      resultList.push({
-        question_id: q.id,
-        user_answer: userAnswer,
-        correct_answer: q.correct,
-        is_correct: isCorrect,
-      })
+      resultList.push({ question_id: q.id, user_answer: userAnswer, correct_answer: q.correct, is_correct: isCorrect })
     }
-
     const score = Math.round(correct / questions.length * 100)
     const res = { score, correct, total: questions.length, results: resultList }
     setResults(res)
@@ -234,19 +161,14 @@ function App() {
     setView('results')
 
     const p = loadProgress()
-    const session = {
+    p.sessions.push({
       timestamp: new Date().toISOString(),
-      topic_id: selectedTopics.size === 0 ? 'all' : [...selectedTopics].join(' + '),
-      total: questions.length,
-      correct,
-      score,
+      topic_id: selectedSources.size === 2 ? 'all' : [...selectedSources].join('+'),
+      total: questions.length, correct, score,
       time_spent_seconds: elapsed,
-    }
-    p.sessions.push(session)
-    const topic = selectedTopics.size === 0 ? 'all' : [...selectedTopics].join(' + ')
-    if (!p.topic_stats[topic]) {
-      p.topic_stats[topic] = { attempts: 0, total_questions: 0, total_correct: 0 }
-    }
+    })
+    const topic = selectedSources.size === 2 ? 'all' : [...selectedSources].join('+')
+    if (!p.topic_stats[topic]) p.topic_stats[topic] = { attempts: 0, total_questions: 0, total_correct: 0 }
     p.topic_stats[topic].attempts += 1
     p.topic_stats[topic].total_questions += questions.length
     p.topic_stats[topic].total_correct += correct
@@ -255,10 +177,7 @@ function App() {
   }
 
   function goHome() {
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-      timerRef.current = null
-    }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     setView('home')
     setQuestions([])
     setAnswers({})
@@ -282,13 +201,9 @@ function App() {
     })
   }
 
-  function getTopicStats(topicId) {
-    return progress?.topic_stats?.[topicId || 'all'] || null
-  }
-
   if (loading) {
     return (
-      <div className="app">
+      <div className="app-shell">
         <div className="loading">
           <div className="spinner" />
           <p>იტვირთება...</p>
@@ -297,216 +212,156 @@ function App() {
     )
   }
 
+  const poolSize = getPool(true).length
+
   return (
-    <div className="app">
-      <div className="header">
+    <div className="app-shell">
+      <div className="app-header">
         <h1>აუდიტის სერტიფიცირება</h1>
-        <p>გამოცდისთვის მომზადების პლატფორმა — {bank.length} კითხვა</p>
+        <div className="subtitle">გამოცდისთვის მომზადების პლატფორმა</div>
       </div>
 
-      {error && <div className="error-msg">{error}</div>}
+      {error && <div className="error-msg">{error}<button onClick={() => setError(null)} style={{marginLeft:8,background:'none',border:'none',color:'inherit',cursor:'pointer'}}>✕</button></div>}
 
+      {/* NAV */}
       {view !== 'quiz' && view !== 'cards' && (
-        <div className="nav">
+        <div className="tab-bar">
           <button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}>
-            თემები
+            <i className="ti ti-home" />მთავარი
           </button>
           <button className={view === 'progress' ? 'active' : ''} onClick={() => { setView('progress'); setProgress(loadProgress()) }}>
-            პროგრესი
+            <i className="ti ti-chart-bar" />პროგრესი
           </button>
         </div>
       )}
 
-      {/* HOME: Topic Selection */}
+      {/* ====== HOME ====== */}
       {view === 'home' && (
         <>
           {bank.length === 0 ? (
-            <div className="setup-card">
-              <h2>კითხვების ბანკი ცარიელია</h2>
-              <p>question_bank.json ფაილი ვერ მოიძებნა ან ცარიელია</p>
+            <div className="empty-state">
+              <p>კითხვების ბანკი ცარიელია</p>
             </div>
           ) : (
             <>
-              <div className="quiz-controls">
-                <label>რაოდენობა:</label>
-                <select value={questionCount} onChange={e => setQuestionCount(Number(e.target.value))}>
-                  <option value={5}>5</option>
-                  <option value={10}>10</option>
-                  <option value={15}>15</option>
-                  <option value={20}>20</option>
-                  <option value={30}>30</option>
-                  <option value={50}>50</option>
-                  <option value={60}>60</option>
-                </select>
-                <button className="btn btn-primary" onClick={startQuiz}>
-                  ტესტის დაწყება
-                </button>
-                <button className="btn btn-cards" onClick={startCards}>
-                  ბარათები
-                </button>
+              {/* Source filter */}
+              <div className="source-grid">
+                <div
+                  className={`source-card src-handbook ${selectedSources.has('handbook') ? 'selected' : ''}`}
+                  onClick={() => toggleSource('handbook')}
+                >
+                  <div className="s-icon"><i className="ti ti-book-2" /></div>
+                  <div className="s-body">
+                    <div className="s-name">სახელმძღვანელო</div>
+                    <div className="s-count">{handbookCount} კითხვა</div>
+                  </div>
+                  <div className="s-check"><i className="ti ti-check" /></div>
+                </div>
+                <div
+                  className={`source-card src-ai ${selectedSources.has('ai') ? 'selected' : ''}`}
+                  onClick={() => toggleSource('ai')}
+                >
+                  <div className="s-icon"><i className="ti ti-sparkles" /></div>
+                  <div className="s-body">
+                    <div className="s-name">AI შეკითხვები</div>
+                    <div className="s-count">{aiCount} კითხვა</div>
+                  </div>
+                  <div className="s-check"><i className="ti ti-check" /></div>
+                </div>
               </div>
 
-              <div className="topics">
-                {/* ყველა თემა */}
-                <div
-                  className={`topic-card ${selectedTopics.size === 0 ? 'selected' : ''}`}
-                  onClick={() => toggleTopic(null)}
-                >
-                  <div>
-                    <h3>ყველა თემა</h3>
-                    <span className="chunk-count">შერეული კითხვები ყველა თემიდან</span>
-                  </div>
-                  {getTopicStats('all') && (
-                    <div className="stats">
-                      <div className="score" style={{ color: getTopicStats('all').total_correct / getTopicStats('all').total_questions >= 0.7 ? '#22c55e' : '#fbbf24' }}>
-                        {Math.round(getTopicStats('all').total_correct / getTopicStats('all').total_questions * 100)}%
-                      </div>
-                    </div>
-                  )}
+              {/* Session config */}
+              <div className="session-config">
+                <div className="session-row">
+                  <div className="k">სესიის ხანგრძლივობა</div>
+                  <div className="v">{questionCount} კითხვა · ~{Math.round(questionCount * 0.7)} წთ</div>
                 </div>
-
-                {/* სახელმძღვანელო group */}
-                {handbookChildren.length > 0 && (() => {
-                  const childNames = handbookChildren.map(t => t.name)
-                  const allSelected = childNames.every(t => selectedTopics.has(t))
-                  const someSelected = childNames.some(t => selectedTopics.has(t))
-                  const totalCount = handbookChildren.reduce((s, t) => s + t.question_count, 0)
-                  const isExpanded = expandedGroups.has('handbook')
-                  return (
-                    <div className="topic-group">
-                      <div className={`topic-group-header ${allSelected ? 'selected' : someSelected ? 'partial' : ''}`}>
-                        <div className="topic-group-left" onClick={() => toggleGroupTopics(childNames)}>
-                          <h3>სახელმძღვანელო</h3>
-                          <span className="chunk-count">{totalCount} კითხვა</span>
-                        </div>
-                        <button className="expand-btn" onClick={() => toggleGroupExpand('handbook')}>
-                          {isExpanded ? '▲' : '▼'}
-                        </button>
-                      </div>
-                      {isExpanded && (
-                        <div className="topic-group-children">
-                          {handbookChildren.map(topic => {
-                            const displayName = TOPIC_DISPLAY[topic.name] || topic.name
-                            const stats = getTopicStats(topic.id)
-                            return (
-                              <div
-                                key={topic.id}
-                                className={`topic-card child ${selectedTopics.has(topic.id) ? 'selected' : ''}`}
-                                onClick={() => toggleTopic(topic.id)}
-                              >
-                                <div>
-                                  <h3>{displayName}</h3>
-                                  <span className="chunk-count">{topic.question_count} კითხვა</span>
-                                </div>
-                                {stats && (
-                                  <div className="stats">
-                                    <div className="score" style={{ color: stats.total_correct / stats.total_questions >= 0.7 ? '#22c55e' : '#fbbf24' }}>
-                                      {Math.round(stats.total_correct / stats.total_questions * 100)}%
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
+                <div className="stops">
+                  {COUNT_STOPS.map(n => (
+                    <div
+                      key={n}
+                      className={`stop ${questionCount === n ? 'active' : ''}`}
+                      onClick={() => setQuestionCount(n)}
+                    >
+                      <div className="n">{n}</div>
+                      <div className="t">~{Math.round(n * 0.7)} წთ</div>
                     </div>
-                  )
-                })()}
+                  ))}
+                </div>
+              </div>
 
-                {/* AI შეკითხვები group */}
-                {aiChildren.length > 0 && (() => {
-                  const childNames = aiChildren.map(t => t.name)
-                  const allSelected = childNames.every(t => selectedTopics.has(t))
-                  const someSelected = childNames.some(t => selectedTopics.has(t))
-                  const totalCount = aiChildren.reduce((s, t) => s + t.question_count, 0)
-                  const isExpanded = expandedGroups.has('ai')
-                  return (
-                    <div className="topic-group">
-                      <div className={`topic-group-header ${allSelected ? 'selected' : someSelected ? 'partial' : ''}`}>
-                        <div className="topic-group-left" onClick={() => toggleGroupTopics(childNames)}>
-                          <h3>AI შეკითხვები</h3>
-                          <span className="chunk-count">{totalCount} კითხვა</span>
-                        </div>
-                        <button className="expand-btn" onClick={() => toggleGroupExpand('ai')}>
-                          {isExpanded ? '▲' : '▼'}
-                        </button>
-                      </div>
-                      {isExpanded && (
-                        <div className="topic-group-children">
-                          {aiChildren.map(topic => {
-                            const stats = getTopicStats(topic.id)
-                            return (
-                              <div
-                                key={topic.id}
-                                className={`topic-card child ${selectedTopics.has(topic.id) ? 'selected' : ''}`}
-                                onClick={() => toggleTopic(topic.id)}
-                              >
-                                <div>
-                                  <h3>{topic.name}</h3>
-                                  <span className="chunk-count">{topic.question_count} კითხვა</span>
-                                </div>
-                                {stats && (
-                                  <div className="stats">
-                                    <div className="score" style={{ color: stats.total_correct / stats.total_questions >= 0.7 ? '#22c55e' : '#fbbf24' }}>
-                                      {Math.round(stats.total_correct / stats.total_questions * 100)}%
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()}
+              {/* Start row */}
+              <div className="start-row">
+                <div className="pool">ხელმისაწვდომი: <b>{poolSize.toLocaleString()} კითხვა</b></div>
+                <div className="actions">
+                  <button className="btn-start" onClick={startQuiz} disabled={poolSize === 0}>
+                    <i className="ti ti-player-play" />ტესტი
+                  </button>
+                  <button className="btn-start-cards" onClick={startCards} disabled={getPool(false).length === 0}>
+                    <i className="ti ti-cards" />ბარათები
+                  </button>
+                </div>
               </div>
             </>
           )}
         </>
       )}
 
-      {/* QUIZ */}
-      {view === 'quiz' && questions.length > 0 && (
-        <>
-          <div className="quiz-header">
-            <span className="counter">
-              {currentQ + 1} / {questions.length}
-            </span>
-            <span className="timer">{formatTime(elapsed)}</span>
-          </div>
+      {/* ====== QUIZ ====== */}
+      {view === 'quiz' && questions.length > 0 && (() => {
+        const q = questions[currentQ]
+        const qId = q.id
+        const isRevealed = revealed[qId] || reviewMode
+        const explanations = q.explanations || {}
+        const status = reviewStatus[qId] || (q.confirmed ? 'confirm' : q.needs_review ? 'flag' : null)
+        return (
+          <>
+            <div className="test-top">
+              <div className="crumb">
+                <span className="chip">ტესტი</span>
+                <span>{formatTime(elapsed)}</span>
+              </div>
+              <button className="btn-exit" onClick={goHome}>
+                <i className="ti ti-x" />{reviewMode ? 'დახურვა' : 'გაუქმება'}
+              </button>
+            </div>
 
-          <div className="question-card">
-            <h3>{questions[currentQ].question}</h3>
-            {questions[currentQ].english_summary && (
-              <p className="english-summary">({questions[currentQ].english_summary})</p>
-            )}
+            <div className="q-bar">
+              <span style={{ width: `${((currentQ + 1) / questions.length) * 100}%` }} />
+            </div>
+            <div className="q-meta">
+              <span>კითხვა {currentQ + 1} / {questions.length}</span>
+              {!reviewMode && Object.keys(revealed).length > 0 && (
+                <span>სწორი {correctSoFar} · არასწორი {wrongSoFar}</span>
+              )}
+            </div>
+
+            <div className="q-body">{q.question}</div>
+            {q.english_summary && <div className="q-english">({q.english_summary})</div>}
+
             <div className="options">
-              {Object.entries(questions[currentQ].options).map(([key, value]) => {
-                let className = 'option'
-                const qId = questions[currentQ].id
-                const explanations = questions[currentQ].explanations || {}
-                const isRevealed = revealed[qId]
-
-                if (isRevealed || reviewMode) {
-                  if (key === questions[currentQ].correct) className += ' correct'
-                  else if (key === answers[qId]) className += ' wrong'
+              {Object.entries(q.options).map(([key, value]) => {
+                let cls = 'opt'
+                if (isRevealed) {
+                  if (key === q.correct) cls += ' correct'
+                  else if (key === answers[qId]) cls += ' wrong'
                 } else if (answers[qId] === key) {
-                  className += ' selected'
+                  cls += ' selected'
                 }
-
                 return (
                   <div key={key}>
-                    <button
-                      className={className}
-                      onClick={() => selectAnswer(qId, key)}
-                      disabled={isRevealed || reviewMode}
-                    >
-                      <strong>{key})</strong> {value}
+                    <button className={cls} onClick={() => selectAnswer(qId, key)} disabled={isRevealed}>
+                      <div className="marker">
+                        {isRevealed && key === q.correct
+                          ? <i className="ti ti-check" style={{ fontSize: 15 }} />
+                          : isRevealed && key === answers[qId] && key !== q.correct
+                            ? <i className="ti ti-x" style={{ fontSize: 15 }} />
+                            : key.toUpperCase()}
+                      </div>
+                      <div className="opt-text">{value}</div>
                     </button>
-                    {(isRevealed || reviewMode) && explanations[key] && (
-                      <div className={`option-explanation ${key === questions[currentQ].correct ? 'correct-exp' : 'wrong-exp'}`}>
+                    {isRevealed && explanations[key] && (
+                      <div className={`explain-box ${key === q.correct ? 'correct-exp' : 'wrong-exp'}`}>
                         {explanations[key]}
                       </div>
                     )}
@@ -515,149 +370,156 @@ function App() {
               })}
             </div>
 
-            {(revealed[questions[currentQ].id] || reviewMode) && (
-              <div className="review-actions">
-                {(() => {
-                  const qId = questions[currentQ].id
-                  const status = reviewStatus[qId] || (questions[currentQ].confirmed ? 'confirm' : questions[currentQ].needs_review ? 'flag' : null)
-                  return (
-                    <>
-                      <button
-                        className={`btn-review btn-flag ${status === 'flag' ? 'active' : ''}`}
-                        onClick={() => reviewQuestion(qId, 'flag')}
-                      >
-                        {status === 'flag' ? '⚠ მონიშნული' : '⚠ მონიშვნა'}
-                      </button>
-                      <button
-                        className={`btn-review btn-confirm ${status === 'confirm' ? 'active' : ''}`}
-                        onClick={() => reviewQuestion(qId, 'confirm')}
-                      >
-                        {status === 'confirm' ? '✓ დადასტურებული' : '✓ დადასტურება'}
-                      </button>
-                    </>
-                  )
-                })()}
-              </div>
-            )}
-          </div>
+            <div className="test-actions">
+              {isRevealed && (
+                <>
+                  <button
+                    className={`btn-ghost ${status === 'flag' ? 'flag-active' : ''}`}
+                    onClick={() => reviewQuestion(qId, 'flag')}
+                  >
+                    <i className="ti ti-flag" />{status === 'flag' ? 'მონიშნული' : 'მონიშვნა'}
+                  </button>
+                  <button
+                    className={`btn-ghost ${status === 'confirm' ? 'confirm-active' : ''}`}
+                    onClick={() => reviewQuestion(qId, 'confirm')}
+                  >
+                    <i className="ti ti-check" />{status === 'confirm' ? 'დადასტურებული' : 'დადასტურება'}
+                  </button>
+                </>
+              )}
 
-          <div className="quiz-nav">
-            <button
-              className="btn btn-secondary"
-              onClick={() => setCurrentQ(q => q - 1)}
-              disabled={currentQ === 0}
-            >
-              წინა
-            </button>
+              {currentQ > 0 && (
+                <button className="btn-ghost" onClick={() => setCurrentQ(c => c - 1)}>
+                  <i className="ti ti-arrow-left" />წინა
+                </button>
+              )}
 
-            {!reviewMode && (
-              <button className="btn btn-secondary" onClick={goHome}>
-                გაუქმება
-              </button>
-            )}
+              {currentQ < questions.length - 1 ? (
+                <button className="btn-next" onClick={() => setCurrentQ(c => c + 1)} disabled={!revealed[qId] && !reviewMode}>
+                  შემდეგი <i className="ti ti-arrow-right" />
+                </button>
+              ) : !reviewMode ? (
+                <button className="btn-finish" onClick={submitQuiz} disabled={!revealed[qId]}>
+                  <i className="ti ti-check" />დასრულება
+                </button>
+              ) : (
+                <button className="btn-next" onClick={goHome}>
+                  დახურვა <i className="ti ti-x" />
+                </button>
+              )}
+            </div>
+          </>
+        )
+      })()}
 
-            {reviewMode && (
-              <button className="btn btn-secondary" onClick={goHome}>
-                მთავარი
-              </button>
-            )}
-
-            {currentQ < questions.length - 1 ? (
-              <button
-                className="btn btn-primary"
-                onClick={() => setCurrentQ(q => q + 1)}
-                disabled={!revealed[questions[currentQ].id]}
-              >
-                შემდეგი
-              </button>
-            ) : !reviewMode ? (
-              <button
-                className="btn btn-success"
-                onClick={submitQuiz}
-                disabled={!revealed[questions[currentQ].id]}
-              >
-                დასრულება
-              </button>
-            ) : (
-              <button className="btn btn-primary" onClick={goHome}>
-                დასრულება
-              </button>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* CARDS */}
+      {/* ====== CARDS ====== */}
       {view === 'cards' && cards.length > 0 && (() => {
         const card = cards[currentCard]
-        const color = CARD_COLORS[currentCard % CARD_COLORS.length]
         const isOpen = card.type === 'open'
         const correctKey = card.correct
         const correctText = isOpen ? null : card.options?.[correctKey]
-        const explanation = isOpen ? null : card.explanations?.[correctKey] || ''
+        const explanation = isOpen ? null : (card.explanations?.[correctKey] || '')
         const englishSummary = card.english_summary || ''
+        const progress = ((currentCard + 1) / cards.length) * 100
+
         return (
           <>
-            <div className="cards-header">
-              <span className="counter">{currentCard + 1} / {cards.length}</span>
-              <button className="btn btn-secondary" onClick={goHome}>მთავარი</button>
+            <div className="card-top">
+              <div className="card-chip">
+                <i className={isOpen ? 'ti ti-puzzle' : 'ti ti-cards'} />
+                {isOpen ? 'ამოცანა' : 'ბარათი'}
+              </div>
+              <div className="card-ix">{currentCard + 1} / {cards.length}</div>
             </div>
 
-            <div className="flashcard" style={{ background: isOpen ? '#1a5276' : color }}>
-              {isOpen && <span className="flashcard-badge">ამოცანა</span>}
-              <div className="flashcard-question">{card.question}</div>
-              <div className="flashcard-divider" />
-              {!isOpen && correctText && (
-                <div className="flashcard-answer">
-                  <span className="flashcard-label">პასუხი:</span>
-                  <span>{correctKey}) {correctText}</span>
+            <div className="deck-bar"><span style={{ width: `${progress}%` }} /></div>
+
+            <div className="flash-wrap">
+              <div
+                className={`flash ${isOpen ? 'open-card' : ''}`}
+                onClick={() => !isOpen && setFlipped(f => !f)}
+              >
+                <div className="flash-topline">
+                  <span>{isOpen ? 'დავალება' : (flipped ? 'პასუხი' : 'კითხვა')}</span>
+                  {isOpen && <span className="flash-badge">Open-ended</span>}
                 </div>
-              )}
-              {!isOpen && explanation && (
-                <div className="flashcard-explanation">
-                  <span className="flashcard-label">ახსნა:</span>
-                  <span>{explanation}</span>
+
+                {(!flipped || isOpen) && (
+                  <div className="flash-question">{card.question}</div>
+                )}
+
+                {flipped && !isOpen && (
+                  <>
+                    <div className="flash-question" style={{ fontSize: 16, fontWeight: 400 }}>
+                      {card.question}
+                    </div>
+                    <div className="flash-divider" />
+                    {correctText && (
+                      <div className="flash-section flash-answer">
+                        <div className="flash-label">პასუხი</div>
+                        {correctKey}) {correctText}
+                      </div>
+                    )}
+                    {explanation && (
+                      <div className="flash-section">
+                        <div className="flash-label">ახსნა</div>
+                        {explanation}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {isOpen && englishSummary && (
+                  <>
+                    <div className="flash-divider" />
+                    <div className="flash-section">
+                      <div className="flash-label">Task</div>
+                      {englishSummary}
+                    </div>
+                  </>
+                )}
+
+                {!isOpen && !flipped && englishSummary && (
+                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 8, fontStyle: 'italic' }}>
+                    ({englishSummary})
+                  </div>
+                )}
+
+                <div className="flash-footer">
+                  {!isOpen && (
+                    <span><i className="ti ti-hand-finger" />{flipped ? 'დააწექი დასაკეცად' : 'დააწექი გასაშლელად'}</span>
+                  )}
+                  <span style={{ marginLeft: 'auto' }}>{currentCard + 1} / {cards.length}</span>
                 </div>
-              )}
-              {englishSummary && (
-                <div className="flashcard-english">
-                  <span className="flashcard-label">{isOpen ? 'დავალება / Task:' : 'English:'}</span>
-                  <span>{englishSummary}</span>
-                </div>
-              )}
+              </div>
             </div>
 
-            <div className="quiz-nav">
+            <div className="card-nav">
               <button
-                className="btn btn-secondary"
-                onClick={() => setCurrentCard(c => c - 1)}
+                className="btn-ghost"
+                onClick={() => { setCurrentCard(c => c - 1); setFlipped(false) }}
                 disabled={currentCard === 0}
               >
-                წინა
+                <i className="ti ti-arrow-left" />წინა
               </button>
-              <span className="cards-progress-dots">
-                {cards.map((_, i) => (
-                  <span
-                    key={i}
-                    className={`dot ${i === currentCard ? 'active' : ''}`}
-                    style={{ background: i === currentCard ? CARD_COLORS[i % CARD_COLORS.length] : '#475569' }}
-                    onClick={() => setCurrentCard(i)}
-                  />
-                ))}
-              </span>
+              <div className="spacer" />
+              <button className="btn-ghost" onClick={goHome}>
+                <i className="ti ti-x" />დახურვა
+              </button>
+              <div className="spacer" />
               <button
-                className="btn btn-secondary"
-                onClick={() => setCurrentCard(c => c + 1)}
+                className="btn-ghost"
+                onClick={() => { setCurrentCard(c => c + 1); setFlipped(false) }}
                 disabled={currentCard === cards.length - 1}
               >
-                შემდეგი
+                შემდეგი<i className="ti ti-arrow-right" />
               </button>
             </div>
           </>
         )
       })()}
 
-      {/* RESULTS */}
+      {/* ====== RESULTS ====== */}
       {view === 'results' && results && (
         <div className="results-card">
           <h2>შედეგი</h2>
@@ -665,27 +527,23 @@ function App() {
             {results.score}%
           </div>
           <p className="details">
-            {results.correct} სწორი / {results.total} კითხვიდან | დრო: {formatTime(elapsed)}
+            {results.correct} სწორი / {results.total} კითხვიდან · დრო: {formatTime(elapsed)}
           </p>
           <div className="results-actions">
-            <button className="btn btn-secondary" onClick={() => {
-              setReviewMode(true)
-              setCurrentQ(0)
-              setView('quiz')
-            }}>
-              პასუხების ნახვა
+            <button className="btn-ghost" onClick={() => { setReviewMode(true); setCurrentQ(0); setView('quiz') }}>
+              <i className="ti ti-eye" />პასუხების ნახვა
             </button>
-            <button className="btn btn-primary" onClick={startQuiz}>
-              ახალი ტესტი
+            <button className="btn-start" onClick={startQuiz}>
+              <i className="ti ti-refresh" />ახალი ტესტი
             </button>
-            <button className="btn btn-secondary" onClick={goHome}>
-              მთავარი
+            <button className="btn-ghost" onClick={goHome}>
+              <i className="ti ti-home" />მთავარი
             </button>
           </div>
         </div>
       )}
 
-      {/* PROGRESS */}
+      {/* ====== PROGRESS ====== */}
       {view === 'progress' && (
         <div className="progress-section">
           <h2>სტატისტიკა</h2>
@@ -694,7 +552,7 @@ function App() {
               <div className="stat-grid">
                 <div className="stat-card">
                   <div className="value">{progress.sessions.length}</div>
-                  <div className="label">ტესტი ჩაბარებული</div>
+                  <div className="label">ტესტი</div>
                 </div>
                 <div className="stat-card">
                   <div className="value">
@@ -703,13 +561,13 @@ function App() {
                       progress.sessions.reduce((a, s) => a + s.total, 0) * 100
                     )}%
                   </div>
-                  <div className="label">საშუალო ქულა</div>
+                  <div className="label">საშუალო</div>
                 </div>
                 <div className="stat-card">
                   <div className="value">
                     {progress.sessions.reduce((a, s) => a + s.total, 0)}
                   </div>
-                  <div className="label">კითხვა სულ</div>
+                  <div className="label">კითხვა</div>
                 </div>
               </div>
 
@@ -717,14 +575,14 @@ function App() {
               <div className="session-list">
                 {[...progress.sessions].reverse().slice(0, 20).map((s, i) => (
                   <div key={i} className="session-item">
-                    <div>
+                    <div className="session-info">
                       <span className="session-date">
                         {new Date(s.timestamp).toLocaleDateString('ka-GE')}
                       </span>
-                      {' | '}
-                      <span>{s.topic_id === 'all' ? 'ყველა თემა' : s.topic_id}</span>
+                      {' · '}
+                      <span>{s.topic_id === 'all' ? 'ყველა' : s.topic_id}</span>
                     </div>
-                    <span className="session-score" style={{ color: s.score >= 70 ? '#22c55e' : s.score >= 50 ? '#fbbf24' : '#ef4444' }}>
+                    <span className="session-score" style={{ color: s.score >= 70 ? 'var(--ok)' : s.score >= 50 ? '#FAC775' : 'var(--bad)' }}>
                       {s.score}% ({s.correct}/{s.total})
                     </span>
                   </div>
@@ -732,10 +590,10 @@ function App() {
               </div>
             </>
           ) : (
-            <div className="setup-card">
+            <div className="empty-state">
               <p>ჯერ არ გაქვთ ჩაბარებული ტესტი</p>
-              <button className="btn btn-primary" onClick={() => setView('home')} style={{ marginTop: '1rem' }}>
-                ტესტის დაწყება
+              <button className="btn-start" onClick={() => setView('home')}>
+                <i className="ti ti-player-play" />დაიწყე
               </button>
             </div>
           )}
