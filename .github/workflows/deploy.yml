@@ -26,6 +26,8 @@ jobs:
 
       - name: Install and build
         working-directory: frontend
+        env:
+          VITE_API_URL: https://audit-quiz-api.onrender.com
         run: |
           npm ci
           npm run build
