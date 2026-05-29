@@ -46,24 +46,30 @@ function weightedSample(pool, count, correctIds, wrongIds) {
     else unseen.push(q)
   }
 
-  const nUnseen = Math.round(count * 0.7)
-  const nWrong = Math.round(count * 0.2)
-  const nCorrect = count - nUnseen - nWrong
+  // If no unseen and no wrong left, fall back to pure random
+  if (unseen.length === 0 && wrong.length === 0) {
+    return shuffleArray([...pool]).slice(0, count)
+  }
 
   const pick = (arr, n) => shuffleArray(arr).slice(0, n)
 
-  let selected = []
-  const pickedUnseen = pick(unseen, nUnseen)
-  const pickedWrong = pick(wrong, nWrong)
-  const pickedCorrect = pick(correct, nCorrect)
-  selected = [...pickedUnseen, ...pickedWrong, ...pickedCorrect]
+  // Target quotas: 70% unseen, 20% wrong, 10% correct
+  let nUnseen = Math.round(count * 0.7)
+  let nWrong = Math.round(count * 0.2)
+  let nCorrect = count - nUnseen - nWrong
 
-  // If any bucket was short, fill from the others
+  // Clamp to what's actually available, redistribute surplus
+  nUnseen = Math.min(nUnseen, unseen.length)
+  nWrong = Math.min(nWrong, wrong.length)
+  nCorrect = Math.min(nCorrect, correct.length)
+
+  let selected = [...pick(unseen, nUnseen), ...pick(wrong, nWrong), ...pick(correct, nCorrect)]
+
+  // Fill any remaining slots from whatever's left
   if (selected.length < count) {
     const usedIds = new Set(selected.map(q => q.id))
     const remaining = pool.filter(q => !usedIds.has(q.id))
-    const extra = pick(remaining, count - selected.length)
-    selected = [...selected, ...extra]
+    selected = [...selected, ...pick(remaining, count - selected.length)]
   }
 
   return shuffleArray(selected)
