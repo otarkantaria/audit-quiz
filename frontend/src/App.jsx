@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
 
+const API = import.meta.env.VITE_API_URL || ''
+
 function shuffleArray(arr) {
   const a = [...arr]
   for (let i = a.length - 1; i > 0; i--) {
@@ -10,17 +12,46 @@ function shuffleArray(arr) {
   return a
 }
 
-function loadProgress() {
+function loadCorrectIds() {
   try {
-    const data = localStorage.getItem('audit_quiz_progress')
-    return data ? JSON.parse(data) : { sessions: [], topic_stats: {} }
+    const data = localStorage.getItem('audit_quiz_correct_ids')
+    return data ? new Set(JSON.parse(data)) : new Set()
   } catch {
-    return { sessions: [], topic_stats: {} }
+    return new Set()
   }
 }
 
-function saveProgress(data) {
-  localStorage.setItem('audit_quiz_progress', JSON.stringify(data))
+function saveCorrectIds(idSet) {
+  localStorage.setItem('audit_quiz_correct_ids', JSON.stringify([...idSet]))
+}
+
+function loadSessions() {
+  try {
+    const data = localStorage.getItem('audit_quiz_sessions')
+    return data ? JSON.parse(data) : []
+  } catch {
+    return []
+  }
+}
+
+function saveSessions(sessions) {
+  localStorage.setItem('audit_quiz_sessions', JSON.stringify(sessions))
+}
+
+function getToken() { return localStorage.getItem('audit_quiz_token') }
+function getUsername() { return localStorage.getItem('audit_quiz_username') }
+function setAuth(token, username) {
+  localStorage.setItem('audit_quiz_token', token)
+  localStorage.setItem('audit_quiz_username', username)
+}
+function clearAuth() {
+  localStorage.removeItem('audit_quiz_token')
+  localStorage.removeItem('audit_quiz_username')
+}
+
+function authHeaders() {
+  const t = getToken()
+  return t ? { Authorization: `Bearer ${t}` } : {}
 }
 
 const HANDBOOK_TOPICS = ['შუალედური გამოცდა', 'სახელმძღვანელო']
@@ -36,7 +67,7 @@ function App() {
   const [answers, setAnswers] = useState({})
   const [submitted, setSubmitted] = useState(false)
   const [results, setResults] = useState(null)
-  const [progress, setProgress] = useState(loadProgress())
+  const [sessions, setSessions] = useState(loadSessions)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const timerRef = useRef(null)
@@ -52,8 +83,15 @@ function App() {
   const [cards, setCards] = useState([])
   const [currentCard, setCurrentCard] = useState(0)
   const [flipped, setFlipped] = useState(false)
+  const [correctIds, setCorrectIds] = useState(loadCorrectIds)
 
-  // Correct count for live scoreboard
+  // Auth state
+  const [user, setUser] = useState(getUsername)
+  const [authForm, setAuthForm] = useState({ username: '', password: '' })
+  const [authMode, setAuthMode] = useState('login')
+  const [authError, setAuthError] = useState(null)
+  const [authLoading, setAuthLoading] = useState(false)
+
   const correctSoFar = Object.keys(answers).filter(qId => {
     const q = questions.find(x => x.id === qId)
     return q && answers[qId] === q.correct
@@ -73,15 +111,38 @@ function App() {
       })
   }, [])
 
-  // Derived counts
+  // Load progress from server on login
+  useEffect(() => {
+    if (!user) return
+    fetch(`${API}/api/progress`, { headers: authHeaders() })
+      .then(r => {
+        if (r.status === 401) { handleLogout(); return null }
+        return r.json()
+      })
+      .then(data => {
+        if (!data) return
+        if (data.correct_ids) {
+          const merged = loadCorrectIds()
+          for (const id of data.correct_ids) merged.add(id)
+          saveCorrectIds(merged)
+          setCorrectIds(merged)
+        }
+        if (data.sessions) {
+          saveSessions(data.sessions)
+          setSessions(data.sessions)
+        }
+      })
+      .catch(() => {})
+  }, [user])
+
   const handbookCount = bank.filter(q => HANDBOOK_TOPICS.includes(q.topic)).length
   const aiCount = bank.filter(q => !HANDBOOK_TOPICS.includes(q.topic)).length
+  const handbookDone = bank.filter(q => HANDBOOK_TOPICS.includes(q.topic) && correctIds.has(q.id)).length
+  const aiDone = bank.filter(q => !HANDBOOK_TOPICS.includes(q.topic) && correctIds.has(q.id)).length
 
-  // Filtered pool based on source selection
   function getPool(mcqOnly = false) {
     let pool = bank
     if (mcqOnly) pool = pool.filter(q => q.type !== 'open')
-
     if (selectedSources.size === 0) return pool
     if (selectedSources.has('handbook') && selectedSources.has('ai')) return pool
     if (selectedSources.has('handbook')) return pool.filter(q => HANDBOOK_TOPICS.includes(q.topic))
@@ -92,11 +153,8 @@ function App() {
   function toggleSource(src) {
     setSelectedSources(prev => {
       const next = new Set(prev)
-      if (next.has(src)) {
-        next.delete(src)
-      } else {
-        next.add(src)
-      }
+      if (next.has(src)) next.delete(src)
+      else next.add(src)
       return next
     })
   }
@@ -104,10 +162,7 @@ function App() {
   function startQuiz() {
     const pool = getPool(true)
     const selected = shuffleArray(pool).slice(0, questionCount)
-    if (!selected.length) {
-      setError('კითხვები ვერ მოიძებნა')
-      return
-    }
+    if (!selected.length) { setError('კითხვები ვერ მოიძებნა'); return }
     setQuestions(selected)
     setCurrentQ(0)
     setAnswers({})
@@ -124,27 +179,43 @@ function App() {
   function startCards() {
     const pool = getPool(false)
     const selected = shuffleArray(pool).slice(0, questionCount)
-    if (!selected.length) {
-      setError('კითხვები ვერ მოიძებნა')
-      return
-    }
+    if (!selected.length) { setError('კითხვები ვერ მოიძებნა'); return }
     setCards(selected)
     setCurrentCard(0)
     setFlipped(false)
     setView('cards')
   }
 
+  function syncToServer(newCorrectIds, sessionData) {
+    if (!user) return
+    const body = {}
+    if (newCorrectIds.length) body.correct_ids = newCorrectIds
+    if (sessionData) body.session = sessionData
+    fetch(`${API}/api/progress/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    }).catch(() => {})
+  }
+
   function selectAnswer(questionId, option) {
     if (revealed[questionId]) return
     setAnswers(prev => ({ ...prev, [questionId]: option }))
     setRevealed(prev => ({ ...prev, [questionId]: true }))
+    const q = questions.find(x => x.id === questionId)
+    if (q && option === q.correct) {
+      setCorrectIds(prev => {
+        const next = new Set(prev)
+        next.add(questionId)
+        saveCorrectIds(next)
+        return next
+      })
+      syncToServer([questionId], null)
+    }
   }
 
   function submitQuiz() {
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-      timerRef.current = null
-    }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     let correct = 0
     const resultList = []
     for (const q of questions) {
@@ -160,20 +231,30 @@ function App() {
     setCurrentQ(0)
     setView('results')
 
-    const p = loadProgress()
-    p.sessions.push({
+    const sessionData = {
       timestamp: new Date().toISOString(),
       topic_id: selectedSources.size === 2 ? 'all' : [...selectedSources].join('+'),
       total: questions.length, correct, score,
       time_spent_seconds: elapsed,
-    })
-    const topic = selectedSources.size === 2 ? 'all' : [...selectedSources].join('+')
-    if (!p.topic_stats[topic]) p.topic_stats[topic] = { attempts: 0, total_questions: 0, total_correct: 0 }
-    p.topic_stats[topic].attempts += 1
-    p.topic_stats[topic].total_questions += questions.length
-    p.topic_stats[topic].total_correct += correct
-    saveProgress(p)
-    setProgress(p)
+    }
+
+    const allSessions = loadSessions()
+    allSessions.push(sessionData)
+    saveSessions(allSessions)
+    setSessions(allSessions)
+
+    const updated = loadCorrectIds()
+    const newIds = []
+    for (const r of resultList) {
+      if (r.is_correct) {
+        updated.add(r.question_id)
+        newIds.push(r.question_id)
+      }
+    }
+    saveCorrectIds(updated)
+    setCorrectIds(updated)
+
+    syncToServer(newIds, sessionData)
   }
 
   function goHome() {
@@ -201,6 +282,40 @@ function App() {
     })
   }
 
+  // Auth handlers
+  async function handleAuth(e) {
+    e.preventDefault()
+    setAuthError(null)
+    setAuthLoading(true)
+    const endpoint = authMode === 'login' ? '/api/login' : '/api/register'
+    try {
+      const res = await fetch(`${API}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(authForm),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setAuthError(data.detail || 'შეცდომა')
+        setAuthLoading(false)
+        return
+      }
+      setAuth(data.token, data.username)
+      setUser(data.username)
+      setAuthForm({ username: '', password: '' })
+      setView('home')
+    } catch {
+      setAuthError('სერვერთან დაკავშირება ვერ მოხერხდა')
+    }
+    setAuthLoading(false)
+  }
+
+  function handleLogout() {
+    clearAuth()
+    setUser(null)
+    setView('home')
+  }
+
   if (loading) {
     return (
       <div className="app-shell">
@@ -224,14 +339,100 @@ function App() {
       {error && <div className="error-msg">{error}<button onClick={() => setError(null)} style={{marginLeft:8,background:'none',border:'none',color:'inherit',cursor:'pointer'}}>✕</button></div>}
 
       {/* NAV */}
-      {view !== 'quiz' && view !== 'cards' && (
+      {view !== 'quiz' && view !== 'cards' && view !== 'auth' && (
         <div className="tab-bar">
           <button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}>
             <i className="ti ti-home" />მთავარი
           </button>
-          <button className={view === 'progress' ? 'active' : ''} onClick={() => { setView('progress'); setProgress(loadProgress()) }}>
+          <button className={view === 'progress' ? 'active' : ''} onClick={() => { setView('progress'); setSessions(loadSessions()) }}>
             <i className="ti ti-chart-bar" />პროგრესი
           </button>
+          {user ? (
+            <button className="user-chip" onClick={() => setView('account')}>
+              <i className="ti ti-user" />{user}
+            </button>
+          ) : (
+            <button className={view === 'auth' ? 'active' : ''} onClick={() => setView('auth')}>
+              <i className="ti ti-login" />შესვლა
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ====== AUTH ====== */}
+      {view === 'auth' && (
+        <div className="auth-section">
+          <div className="auth-card">
+            <div className="auth-tabs">
+              <button className={authMode === 'login' ? 'active' : ''} onClick={() => { setAuthMode('login'); setAuthError(null) }}>
+                შესვლა
+              </button>
+              <button className={authMode === 'register' ? 'active' : ''} onClick={() => { setAuthMode('register'); setAuthError(null) }}>
+                რეგისტრაცია
+              </button>
+            </div>
+
+            <form onSubmit={handleAuth}>
+              <div className="auth-field">
+                <label>მომხმარებელი</label>
+                <input
+                  type="text"
+                  value={authForm.username}
+                  onChange={e => setAuthForm(f => ({ ...f, username: e.target.value }))}
+                  autoComplete="username"
+                  required
+                />
+              </div>
+              <div className="auth-field">
+                <label>პაროლი</label>
+                <input
+                  type="password"
+                  value={authForm.password}
+                  onChange={e => setAuthForm(f => ({ ...f, password: e.target.value }))}
+                  autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+                  required
+                />
+              </div>
+
+              {authError && <div className="auth-error">{authError}</div>}
+
+              <button className="btn-start auth-submit" type="submit" disabled={authLoading}>
+                {authLoading ? '...' : authMode === 'login' ? 'შესვლა' : 'რეგისტრაცია'}
+              </button>
+            </form>
+
+            <button className="btn-ghost auth-back" onClick={() => setView('home')}>
+              <i className="ti ti-arrow-left" />უკან
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ====== ACCOUNT ====== */}
+      {view === 'account' && (
+        <div className="auth-section">
+          <div className="auth-card">
+            <div className="account-header">
+              <i className="ti ti-user-circle" style={{ fontSize: 48, color: 'var(--c-purple-tint)' }} />
+              <h2>{user}</h2>
+            </div>
+            <div className="account-stats">
+              <div className="account-stat">
+                <div className="value">{correctIds.size}</div>
+                <div className="label">სწორი კითხვა</div>
+              </div>
+              <div className="account-stat">
+                <div className="value">{sessions.length}</div>
+                <div className="label">ტესტი</div>
+              </div>
+            </div>
+            <button className="btn-ghost logout-btn" onClick={handleLogout}>
+              <i className="ti ti-logout" />გასვლა
+            </button>
+            <button className="btn-ghost auth-back" onClick={() => setView('home')}>
+              <i className="ti ti-arrow-left" />უკან
+            </button>
+          </div>
         </div>
       )}
 
@@ -244,7 +445,6 @@ function App() {
             </div>
           ) : (
             <>
-              {/* Source filter */}
               <div className="source-grid">
                 <div
                   className={`source-card src-handbook ${selectedSources.has('handbook') ? 'selected' : ''}`}
@@ -254,6 +454,7 @@ function App() {
                   <div className="s-body">
                     <div className="s-name">სახელმძღვანელო</div>
                     <div className="s-count">{handbookCount} კითხვა</div>
+                    {handbookDone > 0 && <div className="s-done">{handbookDone} კითხვა ✓</div>}
                   </div>
                   <div className="s-check"><i className="ti ti-check" /></div>
                 </div>
@@ -265,12 +466,12 @@ function App() {
                   <div className="s-body">
                     <div className="s-name">AI შეკითხვები</div>
                     <div className="s-count">{aiCount} კითხვა</div>
+                    {aiDone > 0 && <div className="s-done">{aiDone} კითხვა ✓</div>}
                   </div>
                   <div className="s-check"><i className="ti ti-check" /></div>
                 </div>
               </div>
 
-              {/* Session config */}
               <div className="session-config">
                 <div className="session-row">
                   <div className="k">სესიის ხანგრძლივობა</div>
@@ -290,7 +491,6 @@ function App() {
                 </div>
               </div>
 
-              {/* Start row */}
               <div className="start-row">
                 <div className="pool">ხელმისაწვდომი: <b>{poolSize.toLocaleString()} კითხვა</b></div>
                 <div className="actions">
@@ -547,33 +747,31 @@ function App() {
       {view === 'progress' && (
         <div className="progress-section">
           <h2>სტატისტიკა</h2>
-          {progress && progress.sessions.length > 0 ? (
+          {sessions.length > 0 ? (
             <>
               <div className="stat-grid">
                 <div className="stat-card">
-                  <div className="value">{progress.sessions.length}</div>
+                  <div className="value">{sessions.length}</div>
                   <div className="label">ტესტი</div>
                 </div>
                 <div className="stat-card">
                   <div className="value">
                     {Math.round(
-                      progress.sessions.reduce((a, s) => a + s.correct, 0) /
-                      progress.sessions.reduce((a, s) => a + s.total, 0) * 100
+                      sessions.reduce((a, s) => a + s.correct, 0) /
+                      sessions.reduce((a, s) => a + s.total, 0) * 100
                     )}%
                   </div>
                   <div className="label">საშუალო</div>
                 </div>
                 <div className="stat-card">
-                  <div className="value">
-                    {progress.sessions.reduce((a, s) => a + s.total, 0)}
-                  </div>
-                  <div className="label">კითხვა</div>
+                  <div className="value">{correctIds.size}</div>
+                  <div className="label">ათვისებული</div>
                 </div>
               </div>
 
               <h2>ბოლო სესიები</h2>
               <div className="session-list">
-                {[...progress.sessions].reverse().slice(0, 20).map((s, i) => (
+                {[...sessions].reverse().slice(0, 20).map((s, i) => (
                   <div key={i} className="session-item">
                     <div className="session-info">
                       <span className="session-date">
