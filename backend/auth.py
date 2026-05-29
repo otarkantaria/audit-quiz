@@ -1,5 +1,6 @@
 """Authentication and user progress persistence with SQLite."""
 
+import os
 import sqlite3
 import hashlib
 import secrets
@@ -9,7 +10,8 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 
-DB_PATH = Path(__file__).parent / "data" / "users.db"
+DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
+DB_PATH = DATA_DIR / "users.db"
 JWT_SECRET = None
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_DAYS = 90
@@ -19,7 +21,7 @@ def _get_secret():
     global JWT_SECRET
     if JWT_SECRET:
         return JWT_SECRET
-    secret_path = Path(__file__).parent / "data" / ".jwt_secret"
+    secret_path = DATA_DIR / ".jwt_secret"
     secret_path.parent.mkdir(parents=True, exist_ok=True)
     if secret_path.exists():
         JWT_SECRET = secret_path.read_text().strip()
