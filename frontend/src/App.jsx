@@ -25,6 +25,50 @@ function saveCorrectIds(idSet) {
   localStorage.setItem('audit_quiz_correct_ids', JSON.stringify([...idSet]))
 }
 
+function loadWrongIds() {
+  try {
+    const data = localStorage.getItem('audit_quiz_wrong_ids')
+    return data ? new Set(JSON.parse(data)) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function saveWrongIds(idSet) {
+  localStorage.setItem('audit_quiz_wrong_ids', JSON.stringify([...idSet]))
+}
+
+function weightedSample(pool, count, correctIds, wrongIds) {
+  const unseen = [], wrong = [], correct = []
+  for (const q of pool) {
+    if (wrongIds.has(q.id)) wrong.push(q)
+    else if (correctIds.has(q.id)) correct.push(q)
+    else unseen.push(q)
+  }
+
+  const nUnseen = Math.round(count * 0.7)
+  const nWrong = Math.round(count * 0.2)
+  const nCorrect = count - nUnseen - nWrong
+
+  const pick = (arr, n) => shuffleArray(arr).slice(0, n)
+
+  let selected = []
+  const pickedUnseen = pick(unseen, nUnseen)
+  const pickedWrong = pick(wrong, nWrong)
+  const pickedCorrect = pick(correct, nCorrect)
+  selected = [...pickedUnseen, ...pickedWrong, ...pickedCorrect]
+
+  // If any bucket was short, fill from the others
+  if (selected.length < count) {
+    const usedIds = new Set(selected.map(q => q.id))
+    const remaining = pool.filter(q => !usedIds.has(q.id))
+    const extra = pick(remaining, count - selected.length)
+    selected = [...selected, ...extra]
+  }
+
+  return shuffleArray(selected)
+}
+
 function loadSessions() {
   try {
     const data = localStorage.getItem('audit_quiz_sessions')
@@ -84,6 +128,7 @@ function App() {
   const [currentCard, setCurrentCard] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [correctIds, setCorrectIds] = useState(loadCorrectIds)
+  const [wrongIds, setWrongIds] = useState(loadWrongIds)
 
   // Auth state
   const [user, setUser] = useState(getUsername)
@@ -127,6 +172,15 @@ function App() {
           saveCorrectIds(merged)
           setCorrectIds(merged)
         }
+        if (data.wrong_ids) {
+          const merged = loadWrongIds()
+          for (const id of data.wrong_ids) merged.add(id)
+          // Remove any that are now correct
+          const cids = loadCorrectIds()
+          for (const id of cids) merged.delete(id)
+          saveWrongIds(merged)
+          setWrongIds(merged)
+        }
         if (data.sessions) {
           saveSessions(data.sessions)
           setSessions(data.sessions)
@@ -161,7 +215,7 @@ function App() {
 
   function startQuiz() {
     const pool = getPool(true)
-    const selected = shuffleArray(pool).slice(0, questionCount)
+    const selected = weightedSample(pool, questionCount, correctIds, wrongIds)
     if (!selected.length) { setError('კითხვები ვერ მოიძებნა'); return }
     setQuestions(selected)
     setCurrentQ(0)
@@ -186,10 +240,11 @@ function App() {
     setView('cards')
   }
 
-  function syncToServer(newCorrectIds, sessionData) {
+  function syncToServer(newCorrectIds, newWrongIds, sessionData) {
     if (!user) return
     const body = {}
-    if (newCorrectIds.length) body.correct_ids = newCorrectIds
+    if (newCorrectIds && newCorrectIds.length) body.correct_ids = newCorrectIds
+    if (newWrongIds && newWrongIds.length) body.wrong_ids = newWrongIds
     if (sessionData) body.session = sessionData
     fetch(`${API}/api/progress/sync`, {
       method: 'POST',
@@ -210,7 +265,22 @@ function App() {
         saveCorrectIds(next)
         return next
       })
-      syncToServer([questionId], null)
+      setWrongIds(prev => {
+        if (!prev.has(questionId)) return prev
+        const next = new Set(prev)
+        next.delete(questionId)
+        saveWrongIds(next)
+        return next
+      })
+      syncToServer([questionId], [], null)
+    } else if (q) {
+      setWrongIds(prev => {
+        const next = new Set(prev)
+        next.add(questionId)
+        saveWrongIds(next)
+        return next
+      })
+      syncToServer([], [questionId], null)
     }
   }
 
@@ -243,18 +313,26 @@ function App() {
     saveSessions(allSessions)
     setSessions(allSessions)
 
-    const updated = loadCorrectIds()
-    const newIds = []
+    const updatedCorrect = loadCorrectIds()
+    const updatedWrong = loadWrongIds()
+    const newCorrectIds = []
+    const newWrongIds = []
     for (const r of resultList) {
       if (r.is_correct) {
-        updated.add(r.question_id)
-        newIds.push(r.question_id)
+        updatedCorrect.add(r.question_id)
+        newCorrectIds.push(r.question_id)
+        updatedWrong.delete(r.question_id)
+      } else {
+        updatedWrong.add(r.question_id)
+        newWrongIds.push(r.question_id)
       }
     }
-    saveCorrectIds(updated)
-    setCorrectIds(updated)
+    saveCorrectIds(updatedCorrect)
+    setCorrectIds(updatedCorrect)
+    saveWrongIds(updatedWrong)
+    setWrongIds(updatedWrong)
 
-    syncToServer(newIds, sessionData)
+    syncToServer(newCorrectIds, newWrongIds, sessionData)
   }
 
   function goHome() {

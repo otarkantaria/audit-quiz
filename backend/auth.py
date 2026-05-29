@@ -57,6 +57,13 @@ def init_db():
             PRIMARY KEY (user_id, question_id),
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
+        CREATE TABLE IF NOT EXISTS wrong_answers (
+            user_id INTEGER NOT NULL,
+            question_id TEXT NOT NULL,
+            answered_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (user_id, question_id),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
         CREATE TABLE IF NOT EXISTS sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -157,6 +164,40 @@ def get_correct_answers(user_id: int) -> list[str]:
     conn = get_db()
     rows = conn.execute(
         "SELECT question_id FROM correct_answers WHERE user_id = ?", (user_id,)
+    ).fetchall()
+    conn.close()
+    return [r["question_id"] for r in rows]
+
+
+def save_wrong_answers(user_id: int, question_ids: list[str]):
+    if not question_ids:
+        return
+    conn = get_db()
+    conn.executemany(
+        "INSERT OR IGNORE INTO wrong_answers (user_id, question_id) VALUES (?, ?)",
+        [(user_id, qid) for qid in question_ids],
+    )
+    conn.commit()
+    conn.close()
+
+
+def remove_wrong_answers(user_id: int, question_ids: list[str]):
+    """Remove questions from wrong_answers when answered correctly."""
+    if not question_ids:
+        return
+    conn = get_db()
+    conn.executemany(
+        "DELETE FROM wrong_answers WHERE user_id = ? AND question_id = ?",
+        [(user_id, qid) for qid in question_ids],
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_wrong_answers(user_id: int) -> list[str]:
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT question_id FROM wrong_answers WHERE user_id = ?", (user_id,)
     ).fetchall()
     conn.close()
     return [r["question_id"] for r in rows]

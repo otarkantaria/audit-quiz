@@ -93,6 +93,7 @@ def generate_quiz(req: QuizRequest):
 
 class SyncProgressRequest(BaseModel):
     correct_ids: list[str] = []
+    wrong_ids: list[str] = []
     session: dict | None = None
 
 
@@ -103,6 +104,10 @@ def sync_progress(req: SyncProgressRequest, authorization: str | None = Header(N
 
     if req.correct_ids:
         auth.save_correct_answers(uid, req.correct_ids)
+        auth.remove_wrong_answers(uid, req.correct_ids)
+
+    if req.wrong_ids:
+        auth.save_wrong_answers(uid, req.wrong_ids)
 
     if req.session:
         auth.save_session(uid, req.session)
@@ -116,6 +121,7 @@ def get_progress(authorization: str | None = Header(None)):
     uid = user["user_id"]
     return {
         "correct_ids": auth.get_correct_answers(uid),
+        "wrong_ids": auth.get_wrong_answers(uid),
         "sessions": auth.get_sessions(uid),
     }
 
