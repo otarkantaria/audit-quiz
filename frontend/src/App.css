@@ -383,6 +383,32 @@ body {
 .explain-box.correct-exp { border-left-color: var(--ok); }
 .explain-box.wrong-exp { border-left-color: var(--hairline-2); color: var(--text-muted); }
 
+.english-explanation {
+  max-width: 780px;
+  background: rgba(56, 152, 236, 0.08);
+  border: 1px solid rgba(56, 152, 236, 0.2);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-top: 12px;
+  margin-bottom: 8px;
+}
+.eng-exp-header {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(56, 152, 236, 0.7);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.eng-exp-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #c8cde0;
+}
+
 .test-actions {
   display: flex;
   align-items: center;

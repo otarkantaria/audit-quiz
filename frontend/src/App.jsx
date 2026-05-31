@@ -654,6 +654,13 @@ function App() {
               })}
             </div>
 
+            {isRevealed && q.english_explanation && (
+              <div className="english-explanation">
+                <div className="eng-exp-header"><i className="ti ti-language" /> Explanation</div>
+                <div className="eng-exp-body">{q.english_explanation}</div>
+              </div>
+            )}
+
             <div className="test-actions">
               {isRevealed && (
                 <>
