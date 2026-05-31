@@ -620,7 +620,12 @@ function App() {
               )}
             </div>
 
-            <div className="q-body">{q.question}</div>
+            <div className="q-body">
+              <span className={`q-source-tag ${HANDBOOK_TOPICS.includes(q.topic) ? 'src-tag' : 'ai-tag'}`}>
+                {HANDBOOK_TOPICS.includes(q.topic) ? 'Source' : 'AI'}
+              </span>
+              {q.question}
+            </div>
             {q.english_summary && <div className="q-english">({q.english_summary})</div>}
 
             <div className="options">

@@ -304,6 +304,28 @@ body {
   margin-bottom: 28px;
 }
 
+.q-source-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  margin-right: 10px;
+  vertical-align: middle;
+  position: relative;
+  top: -2px;
+}
+.q-source-tag.src-tag {
+  background: rgba(56, 152, 236, 0.15);
+  color: rgba(56, 152, 236, 0.85);
+}
+.q-source-tag.ai-tag {
+  background: rgba(180, 100, 220, 0.15);
+  color: rgba(180, 100, 220, 0.85);
+}
+
 .q-body {
   font-size: 20px;
   font-weight: 500;
