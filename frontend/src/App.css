@@ -893,3 +893,46 @@ body {
   .results-card .score-display { font-size: 56px; }
   .card-nav { flex-wrap: wrap; justify-content: center; }
 }
+
+/* ============ FONT SIZE TOGGLE ============ */
+.font-size-toggle {
+  display: flex;
+  gap: 5px;
+  justify-content: center;
+  margin-top: 10px;
+}
+.font-size-toggle button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--hairline-2);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  border-radius: 7px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 140ms;
+}
+.font-size-toggle button:nth-child(1) { font-size: 11px; }
+.font-size-toggle button:nth-child(2) { font-size: 14px; }
+.font-size-toggle button:nth-child(3) { font-size: 17px; }
+.font-size-toggle button:hover { background: var(--bg-surface-2); color: var(--text); }
+.font-size-toggle button.active { background: var(--c-purple); border-color: var(--c-purple); color: #fff; }
+
+/* ============ FONT SIZE MODIFIERS ============ */
+/* small = current default sizes (no overrides needed) */
+
+/* medium */
+.font-medium .q-body { font-size: 24px; }
+.font-medium .opt { font-size: 18px; }
+.font-medium .opt .opt-text { font-size: 18px; }
+.font-medium .q-english { font-size: 15px; }
+.font-medium .flash .flash-question { font-size: 22px; }
+.font-medium .flash .flash-section { font-size: 17px; }
+
+/* large */
+.font-large .q-body { font-size: 28px; }
+.font-large .opt { font-size: 21px; }
+.font-large .opt .opt-text { font-size: 21px; }
+.font-large .q-english { font-size: 17px; }
+.font-large .flash .flash-question { font-size: 26px; }
+.font-large .flash .flash-section { font-size: 20px; }

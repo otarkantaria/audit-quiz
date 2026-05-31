@@ -135,6 +135,12 @@ function App() {
   const [flipped, setFlipped] = useState(false)
   const [correctIds, setCorrectIds] = useState(loadCorrectIds)
   const [wrongIds, setWrongIds] = useState(loadWrongIds)
+  const [fontSize, setFontSize] = useState(() => localStorage.getItem('audit_quiz_font_size') || 'medium')
+
+  function changeFontSize(size) {
+    setFontSize(size)
+    localStorage.setItem('audit_quiz_font_size', size)
+  }
 
   // Auth state
   const [user, setUser] = useState(getUsername)
@@ -414,10 +420,15 @@ function App() {
   const poolSize = getPool(true).length
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell font-${fontSize}`}>
       <div className="app-header">
         <h1>აუდიტის სერტიფიცირება</h1>
         <div className="subtitle">გამოცდისთვის მომზადების პლატფორმა</div>
+        <div className="font-size-toggle">
+          <button className={fontSize === 'small' ? 'active' : ''} onClick={() => changeFontSize('small')}>A</button>
+          <button className={fontSize === 'medium' ? 'active' : ''} onClick={() => changeFontSize('medium')}>A</button>
+          <button className={fontSize === 'large' ? 'active' : ''} onClick={() => changeFontSize('large')}>A</button>
+        </div>
       </div>
 
       {error && <div className="error-msg">{error}<button onClick={() => setError(null)} style={{marginLeft:8,background:'none',border:'none',color:'inherit',cursor:'pointer'}}>✕</button></div>}
