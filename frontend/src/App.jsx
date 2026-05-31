@@ -38,7 +38,7 @@ function saveWrongIds(idSet) {
   localStorage.setItem('audit_quiz_wrong_ids', JSON.stringify([...idSet]))
 }
 
-function weightedSample(pool, count, correctIds, wrongIds) {
+function mixSample(pool, count, correctIds, wrongIds, mix) {
   const unseen = [], wrong = [], correct = []
   for (const q of pool) {
     if (wrongIds.has(q.id)) wrong.push(q)
@@ -46,27 +46,21 @@ function weightedSample(pool, count, correctIds, wrongIds) {
     else unseen.push(q)
   }
 
-  // If no unseen and no wrong left, fall back to pure random
-  if (unseen.length === 0 && wrong.length === 0) {
-    return shuffleArray([...pool]).slice(0, count)
-  }
-
   const pick = (arr, n) => shuffleArray(arr).slice(0, n)
 
-  // Target quotas: 70% unseen, 20% wrong, 10% correct
-  let nUnseen = Math.round(count * 0.7)
-  let nWrong = Math.round(count * 0.2)
-  let nCorrect = count - nUnseen - nWrong
+  let nUnseen = Math.round(count * mix.unseen / 100)
+  let nWrong = Math.round(count * mix.wrong / 100)
+  let nCorrect = Math.round(count * mix.correct / 100)
+  let nRandom = count - nUnseen - nWrong - nCorrect
 
-  // Clamp to what's actually available, redistribute surplus
   nUnseen = Math.min(nUnseen, unseen.length)
   nWrong = Math.min(nWrong, wrong.length)
   nCorrect = Math.min(nCorrect, correct.length)
 
   let selected = [...pick(unseen, nUnseen), ...pick(wrong, nWrong), ...pick(correct, nCorrect)]
 
-  // Fill any remaining slots from whatever's left
-  if (selected.length < count) {
+  // Fill random slots from the full pool (excluding already picked)
+  if (nRandom > 0 || selected.length < count) {
     const usedIds = new Set(selected.map(q => q.id))
     const remaining = pool.filter(q => !usedIds.has(q.id))
     selected = [...selected, ...pick(remaining, count - selected.length)]
@@ -136,10 +130,26 @@ function App() {
   const [correctIds, setCorrectIds] = useState(loadCorrectIds)
   const [wrongIds, setWrongIds] = useState(loadWrongIds)
   const [fontSize, setFontSize] = useState(() => localStorage.getItem('audit_quiz_font_size') || 'medium')
+  const [mix, setMix] = useState({ unseen: 0, wrong: 0, correct: 0, random: 100 })
 
   function changeFontSize(size) {
     setFontSize(size)
     localStorage.setItem('audit_quiz_font_size', size)
+  }
+
+  function updateMix(key, value) {
+    setMix(prev => {
+      const next = { ...prev }
+      const oldVal = next[key]
+      const diff = value - oldVal
+      next[key] = value
+      next.random = prev.random - diff
+      if (next.random < 0) {
+        next[key] = value + next.random
+        next.random = 0
+      }
+      return next
+    })
   }
 
   // Auth state
@@ -227,7 +237,7 @@ function App() {
 
   function startQuiz() {
     const pool = getPool(true)
-    const selected = weightedSample(pool, questionCount, correctIds, wrongIds)
+    const selected = mixSample(pool, questionCount, correctIds, wrongIds, mix)
     if (!selected.length) { setError('კითხვები ვერ მოიძებნა'); return }
     setQuestions(selected)
     setCurrentQ(0)
@@ -583,6 +593,32 @@ function App() {
                       <div className="t">~{Math.round(n * 0.7)} წთ</div>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              <div className="mix-config">
+                <div className="mix-header">კითხვების შერევა</div>
+                <div className="mix-sliders">
+                  <div className="mix-row">
+                    <span className="mix-label">ახალი</span>
+                    <input type="range" min="0" max="100" value={mix.unseen} onChange={e => updateMix('unseen', Number(e.target.value))} />
+                    <span className="mix-value">{mix.unseen}%</span>
+                  </div>
+                  <div className="mix-row">
+                    <span className="mix-label">არასწორი</span>
+                    <input type="range" min="0" max="100" value={mix.wrong} onChange={e => updateMix('wrong', Number(e.target.value))} />
+                    <span className="mix-value">{mix.wrong}%</span>
+                  </div>
+                  <div className="mix-row">
+                    <span className="mix-label">სწორი</span>
+                    <input type="range" min="0" max="100" value={mix.correct} onChange={e => updateMix('correct', Number(e.target.value))} />
+                    <span className="mix-value">{mix.correct}%</span>
+                  </div>
+                  <div className="mix-row mix-random">
+                    <span className="mix-label">შემთხვევითი</span>
+                    <div className="mix-bar-bg"><div className="mix-bar-fill" style={{ width: `${mix.random}%` }} /></div>
+                    <span className="mix-value">{mix.random}%</span>
+                  </div>
                 </div>
               </div>
 
