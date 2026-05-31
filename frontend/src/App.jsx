@@ -601,17 +601,17 @@ function App() {
                 <div className="mix-sliders">
                   <div className="mix-row">
                     <span className="mix-label">ახალი</span>
-                    <input type="range" min="0" max="100" value={mix.unseen} onChange={e => updateMix('unseen', Number(e.target.value))} />
+                    <input type="range" min="0" max="100" step="10" value={mix.unseen} onChange={e => updateMix('unseen', Number(e.target.value))} />
                     <span className="mix-value">{mix.unseen}%</span>
                   </div>
                   <div className="mix-row">
                     <span className="mix-label">არასწორი</span>
-                    <input type="range" min="0" max="100" value={mix.wrong} onChange={e => updateMix('wrong', Number(e.target.value))} />
+                    <input type="range" min="0" max="100" step="10" value={mix.wrong} onChange={e => updateMix('wrong', Number(e.target.value))} />
                     <span className="mix-value">{mix.wrong}%</span>
                   </div>
                   <div className="mix-row">
                     <span className="mix-label">სწორი</span>
-                    <input type="range" min="0" max="100" value={mix.correct} onChange={e => updateMix('correct', Number(e.target.value))} />
+                    <input type="range" min="0" max="100" step="10" value={mix.correct} onChange={e => updateMix('correct', Number(e.target.value))} />
                     <span className="mix-value">{mix.correct}%</span>
                   </div>
                   <div className="mix-row mix-random">
